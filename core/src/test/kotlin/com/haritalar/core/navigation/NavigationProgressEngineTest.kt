@@ -10,7 +10,7 @@ class NavigationProgressEngineTest {
     fun doesNotAnnounceTooEarly() {
         val engine = NavigationProgressEngine()
         val maneuver = NavigationProgressEngine.Maneuver(1, "Sağa dön", 1500.0)
-        assertNull(engine.update(800.0, 2000.0, listOf(maneuver)))
+        assertNull(engine.update(1500.0, 2000.0, listOf(maneuver)))
     }
 
     @Test
