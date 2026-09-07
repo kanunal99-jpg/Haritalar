@@ -29,9 +29,9 @@ class RouteAlternativeRankerTest {
     }
 
     @Test
-    fun `known toll amount is rendered in try`() {
+    fun `known toll amount is rendered in Turkish try format`() {
         assertEquals(
-            "Ücretli geçiş • 125.50 TL",
+            "Ücretli geçiş • 125,50 TL",
             RouteAlternativeRanker.tollLabel(RouteToll(true, 125.5)),
         )
     }
