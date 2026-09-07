@@ -2,6 +2,7 @@ package com.haritalar.core.navigation
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RoutePlanningModelsTest {
@@ -36,6 +37,17 @@ class RoutePlanningModelsTest {
     }
 
     @Test
+    fun `non-finite toll amount is treated as unknown`() {
+        val nan = RouteToll(hasToll = true, amountTry = Double.NaN)
+        val infinite = RouteToll(hasToll = true, amountTry = Double.POSITIVE_INFINITY)
+
+        assertFalse(nan.amountKnown)
+        assertFalse(infinite.amountKnown)
+        assertEquals("Ücretli geçiş • tutar doğrulanamadı", RouteAlternativeRanker.tollLabel(nan))
+        assertEquals("Ücretli geçiş • tutar doğrulanamadı", RouteAlternativeRanker.tollLabel(infinite))
+    }
+
+    @Test
     fun `known toll amount is shown explicitly`() {
         val known = RouteToll(hasToll = true, amountTry = 995.0)
 
@@ -46,6 +58,6 @@ class RoutePlanningModelsTest {
     fun `free route is not mislabeled as paid`() {
         val free = RouteToll(hasToll = false)
 
-        assertEquals("Ücretsiz geçiş tespit edilmedi", RouteAlternativeRanker.tollLabel(free))
+        assertEquals("Ücretsiz geçiş tespit edilmedi", RouteAlternativeRankerRanker.tollLabel(free))
     }
 }
