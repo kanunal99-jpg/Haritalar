@@ -4,13 +4,13 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 /**
- * Cost information for a route. A missing amount is deliberately represented as unknown;
- * the app must never invent a toll price from a boolean toll flag.
+ * Cost information for a route. A missing or non-finite amount is deliberately represented as
+ * unknown; the app must never invent a toll price from a boolean toll flag.
  */
 data class RouteToll(
     val hasToll: Boolean,
     val amountTry: Double? = null,
-    val amountKnown: Boolean = amountTry != null,
+    val amountKnown: Boolean = amountTry?.isFinite() == true,
 )
 
 enum class RoutePreference {
