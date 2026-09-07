@@ -9,7 +9,7 @@ class NavigationProgressEngineTest {
     @Test
     fun doesNotAnnounceTooEarly() {
         val engine = NavigationProgressEngine()
-        val maneuver = NavigationProgressEngine.Maneuver(1, "Sağa dön", 900.0)
+        val maneuver = NavigationProgressEngine.Maneuver(1, "Sağa dön", 1500.0)
         assertNull(engine.update(800.0, 2000.0, listOf(maneuver)))
     }
 
@@ -26,10 +26,10 @@ class NavigationProgressEngineTest {
     @Test
     fun announcesImmediateAtFortyMeters() {
         val engine = NavigationProgressEngine()
-        val maneuver = NavigationProgressEngine.Maneuver(1, "Sağa dön", 900.0)
+        val maneuver = NavigationProgressEngine.Maneuver(1, "Sağa dön", 980.0)
         val event = engine.update(1040.0, 2000.0, listOf(maneuver))
         val instruction = assertIs<NavigationProgressEngine.Event.Instruction>(event)
-        assertEquals(0.0, instruction.distanceMeters)
+        assertEquals(20.0, instruction.distanceMeters)
         assertEquals(true, instruction.immediate)
     }
 
