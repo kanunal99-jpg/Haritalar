@@ -1,0 +1,10 @@
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
+}
+
+android { namespace = "com.haritalar.core"; compileSdk = 35
+    defaultConfig { minSdk = 26 }
+}
+
+dependencies { testImplementation(kotlin("test")) }
