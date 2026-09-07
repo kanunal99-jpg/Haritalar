@@ -31,11 +31,11 @@ class MainActivity : Activity() {
         override fun onLocationChanged(location: Location) {
             status.text = "GPS aktif • %.5f, %.5f".format(location.latitude, location.longitude)
             mapView.getMapAsync { map ->
-                map.locationComponent?.cameraMode = org.maplibre.android.location.modes.CameraMode.TRACKING
-                map.cameraPosition = CameraPosition.Builder()
+                val bearing = if (location.hasBearing()) location.bearing.toDouble() else map.cameraPosition.bearing
+                map.cameraPosition = CameraPosition.Builder(map.cameraPosition)
                     .target(LatLng(location.latitude, location.longitude))
                     .zoom(16.0)
-                    .bearing(location.bearing.toDouble())
+                    .bearing(bearing)
                     .build()
             }
         }
@@ -44,7 +44,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
-
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
         val root = FrameLayout(this)
@@ -58,11 +57,10 @@ class MainActivity : Activity() {
             setPadding(24, 14, 24, 14)
             setBackgroundColor(0xEEFFFFFF.toInt())
         }
-        val statusParams = FrameLayout.LayoutParams(-2, -2).apply {
+        root.addView(status, FrameLayout.LayoutParams(-2, -2).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             topMargin = 32
-        }
-        root.addView(status, statusParams)
+        })
 
         val attribution = TextView(this).apply {
             text = "© OpenStreetMap contributors • OpenFreeMap"
@@ -70,12 +68,11 @@ class MainActivity : Activity() {
             setPadding(8, 4, 8, 4)
             setBackgroundColor(0xCCFFFFFF.toInt())
         }
-        val attributionParams = FrameLayout.LayoutParams(-2, -2).apply {
+        root.addView(attribution, FrameLayout.LayoutParams(-2, -2).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             bottomMargin = 12
             marginEnd = 12
-        }
-        root.addView(attribution, attributionParams)
+        })
 
         setContentView(root)
 
@@ -88,7 +85,6 @@ class MainActivity : Activity() {
                 status.text = "Haritalar • Harita hazır"
             }
         }
-
         requestLocationPermission()
     }
 
@@ -99,10 +95,7 @@ class MainActivity : Activity() {
             startLocationUpdates()
         } else {
             requestPermissions(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ),
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
                 LOCATION_REQUEST
             )
         }
@@ -124,20 +117,10 @@ class MainActivity : Activity() {
 
         try {
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    1000L,
-                    5f,
-                    locationListener
-                )
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 5f, locationListener)
             }
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER,
-                    2000L,
-                    10f,
-                    locationListener
-                )
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 10f, locationListener)
             }
             status.text = "GPS etkin • Konum bekleniyor"
         } catch (_: SecurityException) {
@@ -153,35 +136,10 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        mapView.onStart()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        mapView.onResume()
-    }
-
-    override fun onPause() {
-        mapView.onPause()
-        super.onPause()
-    }
-
-    override fun onStop() {
-        stopLocationUpdates()
-        mapView.onStop()
-        super.onStop()
-    }
-
-    override fun onLowMemory() {
-        super.onLowMemory()
-        mapView.onLowMemory()
-    }
-
-    override fun onDestroy() {
-        stopLocationUpdates()
-        mapView.onDestroy()
-        super.onDestroy()
-    }
+    override fun onStart() { super.onStart(); mapView.onStart() }
+    override fun onResume() { super.onResume(); mapView.onResume() }
+    override fun onPause() { mapView.onPause(); super.onPause() }
+    override fun onStop() { stopLocationUpdates(); mapView.onStop(); super.onStop() }
+    override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
+    override fun onDestroy() { stopLocationUpdates(); mapView.onDestroy(); super.onDestroy() }
 }
