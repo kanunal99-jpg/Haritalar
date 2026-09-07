@@ -23,8 +23,16 @@ class NavigationProgressEngine(
             arrived = true
             return Event.Arrived
         }
-        val next = maneuvers.firstOrNull { it.index !in announced } ?: return null
-        val distanceToNext = (next.distanceFromRouteStartMeters - (routeTotalMeters - routeDistanceRemainingMeters)).coerceAtLeast(0.0)
+
+        val currentProgress = (routeTotalMeters - routeDistanceRemainingMeters).coerceIn(0.0, routeTotalMeters)
+        val next = maneuvers
+            .asSequence()
+            .filter { it.index !in announced }
+            .filter { it.distanceFromRouteStartMeters >= currentProgress }
+            .minByOrNull { it.distanceFromRouteStartMeters }
+            ?: return null
+
+        val distanceToNext = next.distanceFromRouteStartMeters - currentProgress
         if (distanceToNext <= earlyTriggerMeters) {
             announced += next.index
             return Event.Instruction(next, distanceToNext, distanceToNext <= immediateTriggerMeters)
