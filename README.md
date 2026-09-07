@@ -7,8 +7,9 @@ AI destekli, offline-first Android sürüş ve navigasyon uygulaması.
 - MapLibre Native harita motoru eklendi.
 - OpenFreeMap tabanlı OSM harita görünümü bağlandı.
 - GPS izin/konum takibi bağlandı.
+- Gerçek Valhalla rota servisine ilk online rota bağlantısı eklendi; haritaya dokunarak hedef seçilip rota çizilebiliyor.
 - Radar/güvenlik uyarı çekirdeği testlerle başladı.
-- GitHub Actions debug APK + unit test zinciri eklendi.
+- GitHub Actions debug APK + unit test zinciri eklendi; henüz başarılı workflow kanıtı oluşmadı.
 
 ## İlk hedefler
 - GPS tabanlı rota takibi
@@ -18,6 +19,9 @@ AI destekli, offline-first Android sürüş ve navigasyon uygulaması.
 - Radar, hız kamerası ve güvenlik noktaları için otomatik sürüş uyarıları
 - Canlı → önbellek → offline → güvenli sessiz varsayılan veri zinciri
 - AI'nin yalnızca doğrulanmış/erişilebilir veriyi yorumlaması
+
+## Online routing
+Geliştirme aşamasında Valhalla'nın kamu demo API'si kullanılmaktadır. Kamu servisi adil kullanım/rate-limit kurallarına tabidir; üretim için uygulamaya gömülü bağımlılık yerine kendi Valhalla instance'ımız veya uygun bir sağlayıcı planlanacaktır. Hedef, aynı `RoutingEngine` arayüzü üzerinden online → cache → offline geçişidir.
 
 ## Radar uyarı davranışı
 Aktif rota ve GPS sürekli değerlendirilir. Uygun bir nokta rota üzerinde ve sürüş yönünde ise kullanıcı ayrıca sormadan uyarı zinciri başlar:
