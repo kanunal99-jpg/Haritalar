@@ -58,6 +58,6 @@ class RoutePlanningModelsTest {
     fun `free route is not mislabeled as paid`() {
         val free = RouteToll(hasToll = false)
 
-        assertEquals("Ücretsiz geçiş tespit edilmedi", RouteAlternativeRankerRanker.tollLabel(free))
+        assertEquals("Ücretsiz geçiş tespit edilmedi", RouteAlternativeRanker.tollLabel(free))
     }
 }
