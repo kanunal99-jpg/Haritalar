@@ -1,6 +1,14 @@
 # Haritalar
 
-AI destekli, offline-first sürüş ve navigasyon uygulaması.
+AI destekli, offline-first Android sürüş ve navigasyon uygulaması.
+
+## Durum
+- Android uygulama iskeleti hazır.
+- MapLibre Native harita motoru eklendi.
+- OpenFreeMap tabanlı OSM harita görünümü bağlandı.
+- GPS izin/konum takibi bağlandı.
+- Radar/güvenlik uyarı çekirdeği testlerle başladı.
+- GitHub Actions debug APK + unit test zinciri eklendi.
 
 ## İlk hedefler
 - GPS tabanlı rota takibi
@@ -18,6 +26,9 @@ Aktif rota ve GPS sürekli değerlendirilir. Uygun bir nokta rota üzerinde ve s
 
 GPS sapması, rota değişimi ve aynı noktanın tekrar tetiklenmesi için durum koruması uygulanır.
 
+## Harita veri politikası
+Harita görüntüleme için OSM türevi veri kullanılabilir. OpenStreetMap'in kendi tile sunucuları offline/bulk indirmeye izin vermediği için offline harita hedefinde uygun lisanslı/self-hosted vector tile kaynağı kullanılacaktır; OSMF servisleri zorla offline cache için kullanılmayacaktır.
+
 ## Güvenlik
 Bu sistem sürücüyü hız limitlerine uymaya teşvik eden güvenlik uyarıları içindir. Kolluk faaliyetlerinden kaçınmaya yönelik yönlendirme üretmez. Veri yoksa uygulama bilgi uydurmaz.
 
@@ -27,4 +38,5 @@ Bu sistem sürücüyü hız limitlerine uymaya teşvik eden güvenlik uyarılar�
 - `core/data`: canlı/önbellek/offline veri katmanları
 - `app`: Android kullanıcı arayüzü ve platform entegrasyonları
 
-İlk commit, dış servislere bağımlı olmayan ve test edilebilir domain çekirdeğini kurar.
+## APK
+Her `main` push'unda GitHub Actions unit test çalıştırır ve başarılı olursa `app-debug.apk` artifact'i üretir. APK üretimi CI kanıtı görülmeden başarılı kabul edilmez.
