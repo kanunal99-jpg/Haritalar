@@ -10,9 +10,14 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.view.Gravity
+import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.haritalar.core.navigation.NavigationProgressEngine
+import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -20,13 +25,16 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.LineString
 import java.net.HttpURLConnection
+import java.net.URLEncoder
 import java.net.URL
 import java.util.Locale
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -40,6 +48,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         private const val LOCATION_REQUEST = 1001
         private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
         private const val ROUTE_ENDPOINT = "https://valhalla1.openstreetmap.de/route"
+        private const val GEOCODE_ENDPOINT = "https://nominatim.openstreetmap.org/search"
         private const val ROUTE_SOURCE = "haritalar-route-source"
         private const val ROUTE_LAYER = "haritalar-route-layer"
         private const val OFF_ROUTE_METERS = 60.0
@@ -50,6 +59,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var locationManager: LocationManager
     private lateinit var status: TextView
     private lateinit var tts: TextToSpeech
+    private lateinit var searchInput: EditText
+    private lateinit var searchResults: LinearLayout
+    private lateinit var routePanel: LinearLayout
+    private val routeExecutor = Executors.newFixedThreadPool(4)
 
     private var lastLocation: Location? = null
     private var destination: LatLng? = null
@@ -61,19 +74,31 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var lastRerouteAt = 0L
     private val navigationEngine = NavigationProgressEngine()
     private var ttsReady = false
+    private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
+    private var routeGeneration = 0
+
+    private data class SearchPlace(val name: String, val lat: Double, val lon: Double)
+    private data class RouteOption(
+        val title: String,
+        val subtitle: String,
+        val points: List<LatLng>,
+        val cumulativeMeters: List<Double>,
+        val totalMeters: Double,
+        val distanceKm: Double,
+        val durationSeconds: Double,
+        val toll: Boolean,
+        val maneuvers: List<NavigationProgressEngine.Maneuver>
+    )
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             lastLocation = location
             val routeDistance = routeDistanceFromLocation(location)
             if (navigationActive && destination != null && routePoints.size >= 2) {
-                if (routeDistance == null) {
-                    status.text = "GPS zayıf • rota konumu bulunamadı"
-                } else {
-                    processNavigation(location, routeDistance)
-                }
+                if (routeDistance == null) status.text = "GPS zayıf • rota konumu bulunamadı"
+                else processNavigation(routeDistance)
             } else {
-                status.text = "GPS aktif • %.5f, %.5f • Hedef için haritaya dokun".format(location.latitude, location.longitude)
+                status.text = "GPS aktif • %.5f, %.5f".format(location.latitude, location.longitude)
             }
             followLocation(location)
         }
@@ -90,54 +115,147 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         mapView.onCreate(savedInstanceState)
         root.addView(mapView, FrameLayout.LayoutParams(-1, -1))
 
+        val searchPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18, 18, 18, 10)
+            setBackgroundColor(0xEEFFFFFF.toInt())
+        }
+        val searchRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        searchInput = EditText(this).apply {
+            hint = "Adres veya yer ara…"
+            singleLine = true
+            textSize = 16f
+        }
+        searchRow.addView(searchInput, LinearLayout.LayoutParams(0, 58, 1f))
+        searchRow.addView(Button(this).apply {
+            text = "Ara"
+            setOnClickListener { searchAddress(searchInput.text.toString()) }
+        }, LinearLayout.LayoutParams(-2, 58))
+        searchPanel.addView(searchRow)
+        searchResults = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        searchPanel.addView(searchResults)
+        root.addView(searchPanel, FrameLayout.LayoutParams(-1, -2).apply {
+            gravity = Gravity.TOP
+            topMargin = 12
+            leftMargin = 12
+            rightMargin = 12
+        })
+
         status = TextView(this).apply {
             text = "Haritalar • GPS bekleniyor"
             textSize = 14f
-            setPadding(24, 14, 24, 14)
+            setPadding(20, 12, 20, 12)
             setBackgroundColor(0xEEFFFFFF.toInt())
         }
         root.addView(status, FrameLayout.LayoutParams(-2, -2).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            topMargin = 32
+            topMargin = 86
+        })
+
+        routePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 8, 12, 12)
+            setBackgroundColor(0xF5FFFFFF.toInt())
+        }
+        val routeScroll = ScrollView(this).apply { addView(routePanel) }
+        root.addView(routeScroll, FrameLayout.LayoutParams(-1, 300).apply {
+            gravity = Gravity.BOTTOM
+            bottomMargin = 8
+            leftMargin = 8
+            rightMargin = 8
         })
 
         val attribution = TextView(this).apply {
             text = "© OpenStreetMap contributors • OpenFreeMap • Valhalla"
-            textSize = 11f
-            setPadding(8, 4, 8, 4)
+            textSize = 10f
+            setPadding(6, 3, 6, 3)
             setBackgroundColor(0xCCFFFFFF.toInt())
         }
         root.addView(attribution, FrameLayout.LayoutParams(-2, -2).apply {
             gravity = Gravity.BOTTOM or Gravity.END
-            bottomMargin = 12
+            bottomMargin = 315
             marginEnd = 12
         })
 
         setContentView(root)
+        routePanel.visibility = android.view.View.GONE
 
         mapView.getMapAsync { map ->
             map.setStyle(Style.Builder().fromUri(MAP_STYLE)) {
                 map.cameraPosition = CameraPosition.Builder()
-                    .target(LatLng(41.0082, 28.9784))
-                    .zoom(11.5)
-                    .build()
+                    .target(LatLng(41.0082, 28.9784)).zoom(11.5).build()
                 map.addOnMapClickListener { point ->
                     val origin = lastLocation
-                    if (origin == null) {
-                        status.text = "Önce GPS konumu bekleniyor"
-                    } else {
-                        destination = point
-                        navigationActive = false
-                        navigationEngine.reset()
-                        status.text = "Rota hesaplanıyor…"
-                        requestRoute(origin.latitude, origin.longitude, point.latitude, point.longitude)
-                    }
+                    if (origin == null) status.text = "Önce GPS konumu bekleniyor"
+                    else selectDestination(point)
                     true
                 }
-                status.text = "Haritalar • Harita hazır • Hedef için haritaya dokun"
+                status.text = "Harita hazır • Adres ara veya haritaya dokun"
             }
         }
         requestLocationPermission()
+    }
+
+    private fun selectDestination(point: LatLng) {
+        destination = point
+        navigationActive = false
+        navigationEngine.reset()
+        status.text = "Çoklu rota hesaplanıyor…"
+        routePanel.visibility = android.view.View.VISIBLE
+        routePanel.removeAllViews()
+        routePanel.addView(TextView(this).apply { text = "Hızlı / kısa / ücretsiz öncelikli kombinasyonlar hazırlanıyor…"; textSize = 15f })
+        requestRouteOptions(lastLocation ?: return, point)
+    }
+
+    private fun searchAddress(query: String) {
+        val clean = query.trim()
+        if (clean.length < 3) { status.text = "En az 3 karakter girin"; return }
+        status.text = "Adres aranıyor…"
+        searchResults.removeAllViews()
+        thread(name = "geocoder") {
+            try {
+                val encoded = URLEncoder.encode(clean, "UTF-8")
+                val url = URL("$GEOCODE_ENDPOINT?format=jsonv2&addressdetails=1&limit=5&countrycodes=tr&accept-language=tr&q=$encoded")
+                val c = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8_000
+                    readTimeout = 12_000
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", "Haritalar/0.1 (open-source navigation app)")
+                }
+                val code = c.responseCode
+                val body = c.inputStream.bufferedReader().use { it.readText() }
+                if (code !in 200..299) throw IllegalStateException("Arama HTTP $code")
+                val array = JSONArray(body)
+                val places = (0 until array.length()).map { i ->
+                    val item = array.getJSONObject(i)
+                    SearchPlace(item.optString("display_name"), item.getDouble("lat"), item.getDouble("lon"))
+                }
+                runOnUiThread {
+                    searchResults.removeAllViews()
+                    if (places.isEmpty()) searchResults.addView(TextView(this).apply { text = "Sonuç bulunamadı" })
+                    else places.forEach { place ->
+                        val b = Button(this).apply {
+                            text = place.name
+                            textSize = 12f
+                            setOnClickListener {
+                                val point = LatLng(place.lat, place.lon)
+                                searchInput.setText(place.name)
+                                searchResults.removeAllViews()
+                                mapView.getMapAsync { map ->
+                                    map.cameraPosition = CameraPosition.Builder(map.cameraPosition).target(point).zoom(16.0).build()
+                                }
+                                selectDestination(point)
+                            }
+                        }
+                        searchResults.addView(b)
+                    }
+                    status.text = "${places.size} adres/yer bulundu"
+                }
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "Adres araması başarısız • ${e.message ?: "ağ hatası"}" }
+            }
+        }
     }
 
     override fun onInit(statusCode: Int) {
@@ -152,36 +270,24 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         tts.speak(text, if (urgent) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "haritalar-${System.nanoTime()}")
     }
 
-    private fun processNavigation(location: Location, routeDistance: RouteDistance) {
-        val offRoute = routeDistance.distanceToRouteMeters > OFF_ROUTE_METERS
-        if (offRoute) {
+    private fun processNavigation(routeDistance: RouteDistance) {
+        if (routeDistance.distanceToRouteMeters > OFF_ROUTE_METERS) {
             status.text = "Rotadan sapıldı • yeniden rota aranıyor"
-            maybeReroute(location)
+            maybeReroute(lastLocation ?: return)
             return
         }
-
-        val event = navigationEngine.update(routeDistance.remainingMeters, routeTotalMeters, currentManeuvers)
-        when (event) {
+        when (val event = navigationEngine.update(routeDistance.remainingMeters, routeTotalMeters, currentManeuvers)) {
             is NavigationProgressEngine.Event.Instruction -> {
                 val meters = event.distanceMeters
-                val distanceText = if (meters >= 1000) "%.1f kilometre sonra".format(meters / 1000.0) else "%.0f metre sonra".format(meters)
-                val message = if (event.immediate) "Şimdi ${event.maneuver.text}" else "$distanceText ${event.maneuver.text}"
+                val d = if (meters >= 1000) "%.1f kilometre sonra".format(meters / 1000.0) else "%.0f metre sonra".format(meters)
+                val message = if (event.immediate) "Şimdi ${event.maneuver.text}" else "$d ${event.maneuver.text}"
                 speak(message, event.immediate)
                 status.text = "Navigasyon • $message"
             }
-            NavigationProgressEngine.Event.Arrived -> {
-                navigationActive = false
-                speak("Hedefinize ulaştınız.", true)
-                status.text = "Hedefe ulaştınız"
-            }
-            null -> {
-                val remaining = routeDistance.remainingMeters
-                status.text = "Navigasyon • %.1f km kaldı".format(remaining / 1000.0)
-            }
+            NavigationProgressEngine.Event.Arrived -> { navigationActive = false; speak("Hedefinize ulaştınız.", true); status.text = "Hedefe ulaştınız" }
+            null -> status.text = "Navigasyon • %.1f km kaldı".format(routeDistance.remainingMeters / 1000.0)
         }
     }
-
-    private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
 
     private fun maybeReroute(location: Location) {
         val target = destination ?: return
@@ -189,229 +295,194 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (rerouteInFlight || now - lastRerouteAt < REROUTE_COOLDOWN_MS) return
         rerouteInFlight = true
         lastRerouteAt = now
-        requestRoute(
-            location.latitude,
-            location.longitude,
-            target.latitude,
-            target.longitude,
-            isReroute = true
-        )
+        requestSingleRoute(location.latitude, location.longitude, target.latitude, target.longitude, "Yeniden rota", "auto", false) { option ->
+            rerouteInFlight = false
+            applyRoute(option, true)
+        }
     }
 
-    private fun requestRoute(fromLat: Double, fromLon: Double, toLat: Double, toLon: Double, isReroute: Boolean = false) {
+    private fun requestRouteOptions(origin: Location, target: LatLng) {
+        val generation = ++routeGeneration
+        val specs = listOf(
+            Triple("En hızlı", "Hızlı rota • ücretli yollar kullanılabilir", "auto"),
+            Triple("En kısa", "Mesafeyi azaltır • süre garanti edilmez", "auto_shorter"),
+            Triple("Ücretsiz öncelikli", "Ücretli yollardan kaçınmayı dener", "no_toll"),
+            Triple("Ücretli hızlı", "Ücretli yolları tercih eder", "toll_fast")
+        )
+        val results = java.util.Collections.synchronizedList(mutableListOf<RouteOption>())
+        specs.forEach { spec ->
+            routeExecutor.execute {
+                try {
+                    val option = fetchRoute(origin.latitude, origin.longitude, target.latitude, target.longitude, spec.first, spec.second, spec.third)
+                    results.add(option)
+                    runOnUiThread {
+                        if (generation == routeGeneration) renderRouteOptions(results.toList())
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        if (generation == routeGeneration && results.isEmpty()) status.text = "Rota hazırlanamadı • ${e.message ?: "ağ hatası"}"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun requestSingleRoute(fromLat: Double, fromLon: Double, toLat: Double, toLon: Double, title: String, mode: String, isReroute: Boolean, onSuccess: (RouteOption) -> Unit) {
         thread(name = "route-request") {
             try {
-                val payload = JSONObject().apply {
-                    put("locations", org.json.JSONArray().apply {
-                        put(JSONObject().apply { put("lat", fromLat); put("lon", fromLon) })
-                        put(JSONObject().apply { put("lat", toLat); put("lon", toLon) })
-                    })
-                    put("costing", "auto")
-                    put("units", "kilometers")
-                    put("directions_options", JSONObject().apply { put("language", "tr-TR") })
-                }
-                val connection = (URL(ROUTE_ENDPOINT).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    connectTimeout = 10_000
-                    readTimeout = 20_000
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("Accept", "application/json")
-                    setRequestProperty("X-Client-Id", "haritalar-open-source-dev")
-                }
-                connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-                val responseCode = connection.responseCode
-                val body = (if (responseCode in 200..299) connection.inputStream else connection.errorStream)
-                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
-                if (responseCode !in 200..299) throw IllegalStateException("Routing HTTP $responseCode")
-
-                val parsed = parseRoute(JSONObject(body))
-                if (parsed.points.size < 2) throw IllegalStateException("Rota geometrisi boş")
-
-                runOnUiThread {
-                    rerouteInFlight = false
-                    routePoints = parsed.points
-                    routeCumulativeMeters = parsed.cumulativeMeters
-                    routeTotalMeters = parsed.totalMeters
-                    currentManeuvers = parsed.maneuvers
-                    navigationEngine.reset()
-                    navigationActive = true
-                    drawRoute(parsed.points)
-                    val prefix = if (isReroute) "Yeni rota" else "Rota hazır"
-                    status.text = "$prefix • %.1f km • %.0f dk".format(parsed.distanceKm, parsed.durationSeconds / 60.0)
-                    if (isReroute) speak("Yeni rota hesaplandı.", true)
-                }
-            } catch (error: Exception) {
-                runOnUiThread {
-                    rerouteInFlight = false
-                    status.text = "Rota alınamadı • ${error.message ?: "ağ hatası"}"
-                }
+                val option = fetchRoute(fromLat, fromLon, toLat, toLon, title, "", mode)
+                runOnUiThread { onSuccess(option) }
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "Rota alınamadı • ${e.message ?: "ağ hatası"}"; rerouteInFlight = false }
             }
         }
     }
 
-    private data class ParsedRoute(
-        val points: List<LatLng>,
-        val cumulativeMeters: List<Double>,
-        val totalMeters: Double,
-        val distanceKm: Double,
-        val durationSeconds: Double,
-        val maneuvers: List<NavigationProgressEngine.Maneuver>
-    )
-
-    private fun parseRoute(root: JSONObject): ParsedRoute {
-        val trip = root.getJSONObject("trip")
-        val summary = trip.getJSONObject("summary")
-        val distanceKm = summary.optDouble("length", 0.0)
-        val durationSeconds = summary.optDouble("time", 0.0)
-        val legs = trip.getJSONArray("legs")
-        val allPoints = ArrayList<LatLng>()
-        val allCumulative = ArrayList<Double>()
-        val maneuvers = ArrayList<NavigationProgressEngine.Maneuver>()
-        var cumulative = 0.0
-        var globalManeuverIndex = 0
-
-        for (legIndex in 0 until legs.length()) {
-            val leg = legs.getJSONObject(legIndex)
-            val legPoints = decodePolyline6(leg.getString("shape"))
-            if (legPoints.isEmpty()) continue
-            val pointOffset = allPoints.size
-            for ((localIndex, point) in legPoints.withIndex()) {
-                if (allPoints.isNotEmpty() && localIndex == 0) continue
-                if (allPoints.isNotEmpty()) cumulative += haversineMeters(allPoints.last(), point)
-                allPoints.add(point)
-                allCumulative.add(cumulative)
-            }
-
-            val legManeuvers = leg.optJSONArray("maneuvers") ?: continue
-            for (i in 0 until legManeuvers.length()) {
-                val maneuver = legManeuvers.getJSONObject(i)
-                val localShapeIndex = maneuver.optInt("begin_shape_index", -1)
-                if (localShapeIndex < 0 || legPoints.isEmpty()) continue
-                val clampedLocal = min(localShapeIndex, legPoints.lastIndex)
-                val globalPointIndex = pointOffset + clampedLocal - if (pointOffset > 0) 1 else 0
-                if (globalPointIndex !in allCumulative.indices) continue
-                val text = maneuver.optString("verbal_pre_transition_instruction")
-                    .ifBlank { maneuver.optString("verbal_transition_alert") }
-                    .ifBlank { maneuver.optString("instruction") }
-                    .trim()
-                if (text.isBlank()) continue
-                maneuvers += NavigationProgressEngine.Maneuver(
-                    index = globalManeuverIndex++,
-                    text = text,
-                    distanceFromRouteStartMeters = allCumulative[globalPointIndex]
-                )
-            }
+    private fun fetchRoute(fromLat: Double, fromLon: Double, toLat: Double, toLon: Double, title: String, subtitle: String, mode: String): RouteOption {
+        val autoOptions = JSONObject()
+        when (mode) {
+            "no_toll" -> autoOptions.put("use_tolls", 0.0).put("toll_booth_penalty", 3600.0)
+            "toll_fast" -> autoOptions.put("use_tolls", 1.0)
         }
+        val payload = JSONObject().apply {
+            put("locations", JSONArray().apply {
+                put(JSONObject().apply { put("lat", fromLat); put("lon", fromLon); put("type", "break") })
+                put(JSONObject().apply { put("lat", toLat); put("lon", toLon); put("type", "break") })
+            })
+            put("costing", if (mode == "auto_shorter") "auto_shorter" else "auto")
+            if (autoOptions.length() > 0) put("costing_options", JSONObject().put("auto", autoOptions))
+            put("units", "kilometers")
+            put("directions_options", JSONObject().put("language", "tr-TR"))
+        }
+        val c = (URL(ROUTE_ENDPOINT).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"; connectTimeout = 10_000; readTimeout = 20_000; doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("X-Client-Id", "haritalar-open-source-dev")
+        }
+        c.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+        val code = c.responseCode
+        val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) throw IllegalStateException("Routing HTTP $code")
+        return parseRoute(JSONObject(body), title, subtitle)
+    }
 
-        return ParsedRoute(
-            points = allPoints,
-            cumulativeMeters = allCumulative,
-            totalMeters = cumulative,
-            distanceKm = distanceKm,
-            durationSeconds = durationSeconds,
-            maneuvers = maneuvers.sortedBy { it.distanceFromRouteStartMeters }
-        )
+    private fun renderRouteOptions(options: List<RouteOption>) {
+        routePanel.removeAllViews()
+        routePanel.addView(TextView(this).apply { text = "Yol seçimi"; textSize = 18f })
+        options.sortedWith(compareBy<RouteOption> { it.durationSeconds }.thenBy { it.distanceKm }).forEach { option ->
+            val tollText = if (option.toll) "Ücretli geçiş var • tutar KGM geçiş tarifesinden doğrulanacak" else "Ücretli geçiş tespit edilmedi"
+            val card = Button(this).apply {
+                text = "${option.title}\n${"%.1f km • %.0f dk".format(option.distanceKm, option.durationSeconds / 60.0)}\n$tollText"
+                textSize = 13f
+                setAllCaps(false)
+                setOnClickListener { applyRoute(option, false) }
+            }
+            routePanel.addView(card, LinearLayout.LayoutParams(-1, 92).apply { bottomMargin = 6 })
+        }
+        routePanel.addView(TextView(this).apply {
+            text = "Not: Valhalla rota üzerindeki geçişin ücretli olup olmadığını işaretleyebilir; gerçek TL tutarı giriş/çıkış gişesi ve araç sınıfına bağlı KGM tarifesinden ayrıca doğrulanmalıdır. Uydurma ücret göstermiyoruz."
+            textSize = 11f
+        })
+        status.text = "${options.size} rota seçeneği hazır"
+    }
+
+    private fun applyRoute(option: RouteOption, isReroute: Boolean) {
+        routePoints = option.points
+        routeCumulativeMeters = option.cumulativeMeters
+        routeTotalMeters = option.totalMeters
+        currentManeuvers = option.maneuvers
+        navigationEngine.reset()
+        navigationActive = true
+        drawRoute(option.points)
+        status.text = "${option.title} • %.1f km • %.0f dk".format(option.distanceKm, option.durationSeconds / 60.0)
+        routePanel.visibility = android.view.View.GONE
+        if (isReroute) speak("Yeni rota hesaplandı.", true) else speak("${option.title} rota seçildi.")
     }
 
     private data class RouteDistance(val distanceToRouteMeters: Double, val remainingMeters: Double)
-
     private fun routeDistanceFromLocation(location: Location): RouteDistance? {
         if (routePoints.size < 2 || routeCumulativeMeters.size != routePoints.size) return null
         val user = LatLng(location.latitude, location.longitude)
-        var bestDistance = Double.MAX_VALUE
-        var bestProgress = 0.0
+        var best = Double.MAX_VALUE
+        var progress = 0.0
         for (i in 0 until routePoints.lastIndex) {
-            val a = routePoints[i]
-            val b = routePoints[i + 1]
-            val projection = projectOntoSegment(user, a, b)
-            if (projection.distanceMeters < bestDistance) {
-                bestDistance = projection.distanceMeters
-                bestProgress = routeCumulativeMeters[i] + projection.fraction * haversineMeters(a, b)
-            }
+            val a = routePoints[i]; val b = routePoints[i + 1]
+            val p = projectOntoSegment(user, a, b)
+            if (p.distanceMeters < best) { best = p.distanceMeters; progress = routeCumulativeMeters[i] + p.fraction * haversineMeters(a, b) }
         }
-        return RouteDistance(bestDistance, max(0.0, routeTotalMeters - bestProgress))
+        return RouteDistance(best, max(0.0, routeTotalMeters - progress))
     }
-
     private data class Projection(val fraction: Double, val distanceMeters: Double)
-
     private fun projectOntoSegment(p: LatLng, a: LatLng, b: LatLng): Projection {
         val meanLat = Math.toRadians((a.latitude + b.latitude + p.latitude) / 3.0)
-        val scaleX = 111_320.0 * cos(meanLat)
-        val scaleY = 110_540.0
-        val ax = (a.longitude - p.longitude) * scaleX
-        val ay = (a.latitude - p.latitude) * scaleY
-        val bx = (b.longitude - p.longitude) * scaleX
-        val by = (b.latitude - p.latitude) * scaleY
-        val dx = bx - ax
-        val dy = by - ay
-        val denom = dx * dx + dy * dy
-        val fraction = if (denom == 0.0) 0.0 else (-ax * dx - ay * dy) / denom
-        val t = fraction.coerceIn(0.0, 1.0)
-        val cx = ax + t * dx
-        val cy = ay + t * dy
+        val sx = 111_320.0 * cos(meanLat); val sy = 110_540.0
+        val ax = (a.longitude - p.longitude) * sx; val ay = (a.latitude - p.latitude) * sy
+        val bx = (b.longitude - p.longitude) * sx; val by = (b.latitude - p.latitude) * sy
+        val dx = bx - ax; val dy = by - ay; val denom = dx * dx + dy * dy
+        val t = (if (denom == 0.0) 0.0 else (-ax * dx - ay * dy) / denom).coerceIn(0.0, 1.0)
+        val cx = ax + t * dx; val cy = ay + t * dy
         return Projection(t, sqrt(cx * cx + cy * cy))
     }
-
     private fun haversineMeters(a: LatLng, b: LatLng): Double {
-        val earth = 6_371_000.0
-        val dLat = Math.toRadians(b.latitude - a.latitude)
-        val dLon = Math.toRadians(b.longitude - a.longitude)
-        val lat1 = Math.toRadians(a.latitude)
-        val lat2 = Math.toRadians(b.latitude)
+        val earth = 6_371_000.0; val dLat = Math.toRadians(b.latitude - a.latitude); val dLon = Math.toRadians(b.longitude - a.longitude)
+        val lat1 = Math.toRadians(a.latitude); val lat2 = Math.toRadians(b.latitude)
         val h = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2)
         return earth * 2 * atan2(sqrt(h), sqrt(max(0.0, 1 - h)))
+    }
+
+    private fun parseRoute(root: JSONObject, title: String, subtitle: String): RouteOption {
+        val trip = root.getJSONObject("trip")
+        val summary = trip.getJSONObject("summary")
+        val legs = trip.getJSONArray("legs")
+        val points = ArrayList<LatLng>(); val cumulative = ArrayList<Double>(); val maneuvers = ArrayList<NavigationProgressEngine.Maneuver>()
+        var distance = 0.0; var globalIndex = 0; var toll = false
+        for (legIndex in 0 until legs.length()) {
+            val leg = legs.getJSONObject(legIndex); val legPoints = decodePolyline6(leg.getString("shape")); val offset = points.size
+            for ((local, point) in legPoints.withIndex()) {
+                if (points.isNotEmpty() && local == 0) continue
+                if (points.isNotEmpty()) distance += haversineMeters(points.last(), point)
+                points.add(point); cumulative.add(distance)
+            }
+            val ms = leg.optJSONArray("maneuvers") ?: continue
+            for (i in 0 until ms.length()) {
+                val m = ms.getJSONObject(i); toll = toll || m.optBoolean("toll", false)
+                val localIndex = m.optInt("begin_shape_index", -1); if (localIndex < 0 || legPoints.isEmpty()) continue
+                val gp = offset + min(localIndex, legPoints.lastIndex) - if (offset > 0) 1 else 0
+                if (gp !in cumulative.indices) continue
+                val text = m.optString("verbal_pre_transition_instruction").ifBlank { m.optString("verbal_transition_alert_instruction") }.ifBlank { m.optString("instruction") }.trim()
+                if (text.isNotBlank()) maneuvers += NavigationProgressEngine.Maneuver(globalIndex++, text, cumulative[gp])
+            }
+        }
+        return RouteOption(title, subtitle, points, cumulative, distance, summary.optDouble("length", distance / 1000.0), summary.optDouble("time", 0.0), toll, maneuvers.sortedBy { it.distanceFromRouteStartMeters })
     }
 
     private fun followLocation(location: Location) {
         mapView.getMapAsync { map ->
             val bearing = if (location.hasBearing()) location.bearing.toDouble() else map.cameraPosition.bearing
-            map.cameraPosition = CameraPosition.Builder(map.cameraPosition)
-                .target(LatLng(location.latitude, location.longitude))
-                .zoom(if (navigationActive) 17.0 else 16.0)
-                .bearing(bearing)
-                .build()
+            map.cameraPosition = CameraPosition.Builder(map.cameraPosition).target(LatLng(location.latitude, location.longitude)).zoom(if (navigationActive) 17.0 else 16.0).bearing(bearing).build()
         }
     }
 
     private fun drawRoute(points: List<LatLng>) {
         mapView.getMapAsync { map ->
             val style = map.style ?: return@getMapAsync
-            style.removeLayer(ROUTE_LAYER)
-            style.removeSource(ROUTE_SOURCE)
+            style.removeLayer(ROUTE_LAYER); style.removeSource(ROUTE_SOURCE)
             if (points.size < 2) return@getMapAsync
-            val coordinates = points.map { org.maplibre.geojson.Point.fromLngLat(it.longitude, it.latitude) }
-            val feature = Feature.fromGeometry(LineString.fromLngLats(coordinates))
-            style.addSource(GeoJsonSource(ROUTE_SOURCE, feature))
-            style.addLayer(LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(6f)))
+            val coords = points.map { org.maplibre.geojson.Point.fromLngLat(it.longitude, it.latitude) }
+            style.addSource(GeoJsonSource(ROUTE_SOURCE, Feature.fromGeometry(LineString.fromLngLats(coords))))
+            style.addLayer(LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(6f), lineColor("#1976D2")))
         }
     }
 
     private fun decodePolyline6(encoded: String): List<LatLng> {
-        val result = ArrayList<LatLng>()
-        var index = 0
-        var lat = 0
-        var lon = 0
+        val result = ArrayList<LatLng>(); var index = 0; var lat = 0; var lon = 0
         while (index < encoded.length) {
-            var shift = 0
-            var value = 0
-            while (true) {
-                if (index >= encoded.length) return result
-                val b = encoded[index++].code - 63
-                value = value or ((b and 0x1f) shl shift)
-                shift += 5
-                if (b < 0x20) break
-            }
+            var shift = 0; var value = 0
+            while (true) { if (index >= encoded.length) return result; val b = encoded[index++].code - 63; value = value or ((b and 0x1f) shl shift); shift += 5; if (b < 0x20) break }
             lat += if ((value and 1) != 0) -(value shr 1) - 1 else value shr 1
-            shift = 0
-            value = 0
-            while (true) {
-                if (index >= encoded.length) return result
-                val b = encoded[index++].code - 63
-                value = value or ((b and 0x1f) shl shift)
-                shift += 5
-                if (b < 0x20) break
-            }
+            shift = 0; value = 0
+            while (true) { if (index >= encoded.length) return result; val b = encoded[index++].code - 63; value = value or ((b and 0x1f) shl shift); shift += 5; if (b < 0x20) break }
             lon += if ((value and 1) != 0) -(value shr 1) - 1 else value shr 1
             result.add(LatLng(lat / 1e6, lon / 1e6))
         }
@@ -419,47 +490,26 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun requestLocationPermission() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        ) startLocationUpdates() else requestPermissions(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), LOCATION_REQUEST
-        )
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) startLocationUpdates()
+        else requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), LOCATION_REQUEST)
     }
-
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == LOCATION_REQUEST && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
-        else status.text = "GPS izni verilmedi • Harita çevrim içi çalışıyor"
+        if (requestCode == LOCATION_REQUEST && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates() else status.text = "GPS izni verilmedi • Harita çevrim içi çalışıyor"
     }
-
     private fun startLocationUpdates() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         try {
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER))
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 5f, locationListener)
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
-                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 10f, locationListener)
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 5f, locationListener)
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 10f, locationListener)
             status.text = "GPS etkin • Konum bekleniyor"
         } catch (_: SecurityException) { status.text = "GPS izni alınamadı" }
     }
-
-    private fun stopLocationUpdates() {
-        try { locationManager.removeUpdates(locationListener) } catch (_: SecurityException) { }
-    }
-
+    private fun stopLocationUpdates() { try { locationManager.removeUpdates(locationListener) } catch (_: SecurityException) {} }
     override fun onStart() { super.onStart(); mapView.onStart() }
     override fun onResume() { super.onResume(); mapView.onResume() }
     override fun onPause() { mapView.onPause(); super.onPause() }
     override fun onStop() { stopLocationUpdates(); mapView.onStop(); super.onStop() }
     override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
-    override fun onDestroy() {
-        stopLocationUpdates()
-        mapView.onDestroy()
-        if (::tts.isInitialized) {
-            tts.stop()
-            tts.shutdown()
-        }
-        super.onDestroy()
-    }
+    override fun onDestroy() { stopLocationUpdates(); routeExecutor.shutdownNow(); mapView.onDestroy(); if (::tts.isInitialized) { tts.stop(); tts.shutdown() }; super.onDestroy() }
 }
