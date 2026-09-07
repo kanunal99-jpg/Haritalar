@@ -1,5 +1,7 @@
 package com.haritalar.core.navigation
 
+import java.util.Locale
+
 /**
  * Cost information for a route. A missing amount is deliberately represented as unknown;
  * the app must never invent a toll price from a boolean toll flag.
@@ -39,7 +41,7 @@ object RouteAlternativeRanker {
 
     fun tollLabel(toll: RouteToll): String = when {
         !toll.hasToll -> "Ücretsiz geçiş tespit edilmedi"
-        toll.amountKnown -> "Ücretli geçiş • %.2f TL".format(toll.amountTry)
+        toll.amountKnown -> "Ücretli geçiş • %.2f TL".format(Locale("tr", "TR"), toll.amountTry)
         else -> "Ücretli geçiş • tutar doğrulanamadı"
     }
 }
