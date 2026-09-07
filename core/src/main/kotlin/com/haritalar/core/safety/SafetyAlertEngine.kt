@@ -17,11 +17,13 @@ class SafetyAlertEngine(
         val distance = position.routeDistanceRemainingMeters
         val state = states.getOrPut(point.id) { AlertState() }
 
+        // A point is terminal after the first passed event; never repeat it on later GPS ticks.
+        if (state.passed) return null
         if (distance <= passThresholdMeters) {
             state.passed = true
             return SafetyAlert.Passed(point.id)
         }
-        if (state.passed || distance > firstAlertMeters) return null
+        if (distance > firstAlertMeters) return null
 
         val bucket = bucketFor(distance)
         if (bucket == state.lastBucket) return null
