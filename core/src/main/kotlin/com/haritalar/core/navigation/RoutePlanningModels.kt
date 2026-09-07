@@ -1,6 +1,7 @@
 package com.haritalar.core.navigation
 
-import java.util.Locale
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * Cost information for a route. A missing amount is deliberately represented as unknown;
@@ -41,7 +42,13 @@ object RouteAlternativeRanker {
 
     fun tollLabel(toll: RouteToll): String = when {
         !toll.hasToll -> "Ücretsiz geçiş tespit edilmedi"
-        toll.amountKnown -> "Ücretli geçiş • %.2f TL".format(Locale("tr", "TR"), toll.amountTry)
+        toll.amountKnown -> "Ücretli geçiş • ${formatTry(toll.amountTry)} TL"
         else -> "Ücretli geçiş • tutar doğrulanamadı"
+    }
+
+    private fun formatTry(amount: Double?): String {
+        if (amount == null || !amount.isFinite()) return "tutar doğrulanamadı"
+        val value = BigDecimal.valueOf(amount).setScale(2, RoundingMode.HALF_UP)
+        return value.toPlainString().replace('.', ',')
     }
 }
