@@ -24,6 +24,7 @@ import com.haritalar.core.navigation.KgmTollEstimator
 import com.haritalar.core.navigation.Navigation3dCameraPolicy
 import com.haritalar.core.navigation.NavigationPoiDetails
 import com.haritalar.core.navigation.NavigationProgressEngine
+import com.haritalar.core.navigation.ValhallaRoutePolicy
 import com.haritalar.core.navigation.TollBridge
 import org.json.JSONArray
 import org.json.JSONObject
@@ -101,6 +102,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val toll: Boolean,
         val tollAmountTry: Double?,
         val tollName: String?,
+        val ferryUsed: Boolean,
         val maneuvers: List<NavigationProgressEngine.Maneuver>,
     )
 
@@ -467,10 +469,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun requestRouteOptions(origin: Location, target: LatLng) {
         val generation = ++routeGeneration
         val specs = listOf(
-            Triple("En hızlı", "Hızlı rota • ücretli yollar kullanılabilir", "auto"),
+            Triple("En hızlı", "Hızlı rota • ücretli/feribot geçişleri kullanılabilir", "auto"),
             Triple("En kısa", "Mesafeyi azaltır", "auto_shorter"),
             Triple("Ücretsiz öncelikli", "Ücretli yollardan kaçınmayı dener", "no_toll"),
             Triple("Ücretli hızlı", "Ücretli yolları tercih eder", "toll_fast"),
+            Triple("Feribot hızlı", "Feribotu gerektiğinde/uygun olduğunda kullanır", "ferry_fast"),
+            Triple("Feribotsuz", "Feribotları kullanmaz", "no_ferry"),
+            Triple("Ücretsiz + feribotsuz", "Ücretli yol ve feribottan kaçınmayı dener", "no_toll_no_ferry"),
         )
         val results = Collections.synchronizedList(mutableListOf<RouteOption>())
         specs.forEach { spec ->
@@ -500,11 +505,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun fetchRoute(fromLat: Double, fromLon: Double, toLat: Double, toLon: Double, title: String, subtitle: String, mode: String): RouteOption {
-        val autoOptions = JSONObject()
-        when (mode) {
-            "no_toll" -> autoOptions.put("use_tolls", 0.0).put("toll_booth_penalty", 3600.0)
-            "toll_fast" -> autoOptions.put("use_tolls", 1.0)
-        }
+        val autoOptions = ValhallaRoutePolicy.autoCostingOptions(mode)
         val payload = JSONObject().apply {
             put("locations", JSONArray().apply {
                 put(JSONObject().apply { put("lat", fromLat); put("lon", fromLon); put("type", "break") })
@@ -522,6 +523,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "application/json")
+            setRequestProperty("X-Client-Id", "Haritalar-Android-open-source")
         }
         connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
         val code = connection.responseCode
@@ -530,10 +532,17 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         return parseRoute(JSONObject(body), title, subtitle)
     }
 
+    private fun routeSignature(option: RouteOption): String {
+        val start = option.points.firstOrNull()?.let { "%.5f,%.5f".format(it.latitude, it.longitude) } ?: ""
+        val end = option.points.lastOrNull()?.let { "%.5f,%.5f".format(it.latitude, it.longitude) } ?: ""
+        return "$start|$end|${option.points.size}|${"%.1f".format(option.totalMeters)}|${option.ferryUsed}"
+    }
+
     private fun renderRouteOptions(options: List<RouteOption>) {
         routePanel.removeAllViews()
         routePanel.addView(TextView(this).apply { text = "Rota seçenekleri"; textSize = 21f; setPadding(4, 0, 4, 8) })
-        options.sortedWith(compareBy<RouteOption> { it.durationSeconds }.thenBy { it.distanceKm }).forEachIndexed { index, option ->
+        options.distinctBy { routeSignature(it) }.sortedWith(compareBy<RouteOption> { it.durationSeconds }.thenBy { it.distanceKm }).forEachIndexed { index, option ->
+            val ferryText = if (option.ferryUsed) "Feribot • ücret doğrulanmadı" else "Feribot yok"
             val tollText = when {
                 !option.toll -> "Ücretsiz • ücretli geçiş tespit edilmedi"
                 option.tollAmountTry != null -> "Ücretli • %.0f TL".format(option.tollAmountTry) + (option.tollName?.let { " • $it" } ?: "")
@@ -548,6 +557,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             card.addView(TextView(this).apply { text = if (index == 0) "ÖNERİLEN • ${option.title}" else option.title; textSize = 16f; setTypeface(typeface, android.graphics.Typeface.BOLD) })
             card.addView(TextView(this).apply { text = "%.1f km • %.0f dk".format(option.distanceKm, option.durationSeconds / 60.0); textSize = 14f; setPadding(0, 4, 0, 2) })
             card.addView(TextView(this).apply { text = tollText; textSize = 12f })
+            card.addView(TextView(this).apply { text = ferryText; textSize = 12f })
             routePanel.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8 })
         }
         status.text = "${options.size} rota seçeneği hazır"
@@ -576,7 +586,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             routePanel.removeAllViews()
             routePanel.addView(TextView(this).apply { text = "Rota hazır"; textSize = 21f; setPadding(4, 2, 4, 6) })
             routePanel.addView(TextView(this).apply { text = "${option.title} • %.1f km • %.0f dk".format(option.distanceKm, option.durationSeconds / 60.0); textSize = 15f; setPadding(4, 0, 4, 12) })
-            routePanel.addView(TextView(this).apply { text = option.subtitle.ifBlank { "Seçilen rota haritada gösteriliyor." }; textSize = 12f; setPadding(4, 0, 4, 12) })
+            routePanel.addView(TextView(this).apply { text = option.subtitle.ifBlank { "Seçilen rota haritada gösteriliyor." }; textSize = 12f; setPadding(4, 0, 4, 6) })
+            routePanel.addView(TextView(this).apply { text = if (option.ferryUsed) "Feribot kullanımı tespit edildi • bilet ücreti doğrulanmadı" else "Feribot kullanımı tespit edilmedi"; textSize = 12f; setPadding(4, 0, 4, 12) })
             routePanel.addView(makeActionButton("Rotaya Başla") { startNavigation() }, LinearLayout.LayoutParams(-1, 60))
             routePanel.addView(makeActionButton("Başka rota seç") {
                 navigationActive = false
@@ -687,6 +698,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         var distance = 0.0
         var globalIndex = 0
         var toll = false
+        var ferryUsed = false
         for (legIndex in 0 until legs.length()) {
             val leg = legs.getJSONObject(legIndex)
             val legPoints = decodePolyline6(leg.getString("shape"))
@@ -701,6 +713,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             for (i in 0 until maneuverArray.length()) {
                 val maneuver = maneuverArray.getJSONObject(i)
                 toll = toll || maneuver.optBoolean("toll", false)
+                ferryUsed = ferryUsed || ValhallaRoutePolicy.isFerryManeuver(maneuver)
                 val localIndex = maneuver.optInt("begin_shape_index", -1)
                 if (localIndex < 0 || legPoints.isEmpty()) continue
                 val globalPoint = offset + min(localIndex, legPoints.lastIndex) - if (offset > 0) 1 else 0
@@ -734,6 +747,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             toll = toll || estimate.hasToll,
             tollAmountTry = estimate.amountTry,
             tollName = bridgeName,
+            ferryUsed = ferryUsed,
             maneuvers = maneuvers.sortedBy { it.distanceFromRouteStartMeters },
         )
     }
