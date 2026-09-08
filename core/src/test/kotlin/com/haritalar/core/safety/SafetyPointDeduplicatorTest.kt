@@ -74,7 +74,10 @@ class SafetyPointDeduplicatorTest {
 
     @Test
     fun resultIsDeterministicallySorted() {
-        val result = SafetyPointDeduplicator.deduplicate(listOf(point("z"), point("a")))
+        val result = SafetyPointDeduplicator.deduplicate(listOf(
+            point("z", lon = 29.0),
+            point("a", lon = 29.002),
+        ))
         assertEquals(listOf("a", "z"), result.map { it.id })
     }
 }
