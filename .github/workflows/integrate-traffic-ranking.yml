@@ -1,0 +1,168 @@
+name: Integrate traffic ranking into route cards
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch MainActivity traffic ranking integration
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('app/src/main/java/com/haritalar/app/MainActivity.kt')
+          text = path.read_text()
+
+          if 'import com.haritalar.core.traffic.TrafficRouteRanking' not in text:
+              text = text.replace(
+                  'import com.haritalar.core.navigation.TollBridge\n',
+                  'import com.haritalar.core.navigation.TollBridge\nimport com.haritalar.core.traffic.TrafficRouteRanking\n'
+              )
+
+          if 'private val trafficRankingService = TrafficEngineFactory.createRankingService()' not in text:
+              text = text.replace(
+                  'private val navigationEngine = NavigationProgressEngine()\n',
+                  'private val navigationEngine = NavigationProgressEngine()\n    private val trafficRankingService = TrafficEngineFactory.createRankingService()\n'
+              )
+
+          request_pattern = re.compile(r'    private fun requestRouteOptions\(origin: Location, target: LatLng\) \{.*?\n    private fun requestSingleRoute', re.S)
+          request_replacement = '''    private fun requestRouteOptions(origin: Location, target: LatLng) {
+        val generation = ++routeGeneration
+        val specs = listOf(
+            Triple("En hızlı", "Hızlı rota • ücretli/feribot geçişleri kullanılabilir", "auto"),
+            Triple("En kısa", "Mesafeyi azaltır", "auto_shorter"),
+            Triple("Ücretsiz öncelikli", "Ücretli yollardan kaçınmayı dener", "no_toll"),
+            Triple("Ücretli hızlı", "Ücretli yolları tercih eder", "toll_fast"),
+            Triple("Feribot hızlı", "Feribotu gerektiğinde/uygun olduğunda kullanır", "ferry_fast"),
+            Triple("Feribotsuz", "Feribotları kullanmaz", "no_ferry"),
+            Triple("Ücretsiz + feribotsuz", "Ücretli yol ve feribottan kaçınmayı dener", "no_toll_no_ferry"),
+        )
+        val results = Collections.synchronizedList(mutableListOf<RouteOption>())
+        val remaining = java.util.concurrent.atomic.AtomicInteger(specs.size)
+
+        fun rankAndRenderIfComplete() {
+            if (remaining.decrementAndGet() != 0) return
+            val snapshot = results.toList()
+            routeExecutor.execute {
+                val trafficByRoute = runCatching {
+                    val candidates = snapshot.map { option ->
+                        TrafficRouteRanking.RouteCandidate(
+                            routeId = routeSignature(option),
+                            coordinates = option.points.map { GeoCoordinate(it.latitude, it.longitude) },
+                            baseDurationSeconds = option.durationSeconds.coerceAtLeast(0.0).roundToLong(),
+                        )
+                    }
+                    val ranked = trafficRankingService.rankBlocking(candidates)
+                    RouteTrafficPresentation.fromRanked(ranked)
+                        .let { models -> candidates.map { it.routeId }.zip(models).toMap() }
+                }.getOrElse { emptyMap() }
+
+                runOnUiThread {
+                    if (generation == routeGeneration) renderRouteOptions(snapshot, trafficByRoute)
+                }
+            }
+        }
+
+        specs.forEach { spec ->
+            routeExecutor.execute {
+                try {
+                    val option = fetchRoute(origin.latitude, origin.longitude, target.latitude, target.longitude, spec.first, spec.second, spec.third)
+                    results.add(option)
+                    runOnUiThread {
+                        if (generation == routeGeneration) renderRouteOptions(results.toList())
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        if (generation == routeGeneration && results.isEmpty()) status.text = "Rota hazırlanamadı • ${e.message ?: "ağ hatası"}"
+                    }
+                } finally {
+                    rankAndRenderIfComplete()
+                }
+            }
+        }
+    }
+
+    private fun requestSingleRoute'''
+          text, count = request_pattern.subn(request_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('requestRouteOptions patch target not found')
+
+          render_pattern = re.compile(r'    private fun renderRouteOptions\(options: List<RouteOption>\) \{.*?\n    private fun applyRoute', re.S)
+          render_replacement = '''    private fun renderRouteOptions(
+        options: List<RouteOption>,
+        trafficByRoute: Map<String, RouteTrafficUiModel> = emptyMap(),
+    ) {
+        routePanel.removeAllViews()
+        routePanel.addView(TextView(this).apply { text = "Rota seçenekleri"; textSize = 21f; setPadding(4, 0, 4, 8) })
+
+        val distinct = options.distinctBy { routeSignature(it) }
+        val sorted = distinct.sortedWith(
+            compareBy<RouteOption> { trafficByRoute[routeSignature(it)]?.adjustedDurationSeconds ?: it.durationSeconds }
+                .thenBy { it.distanceKm }
+        )
+        sorted.forEachIndexed { index, option ->
+            val traffic = trafficByRoute[routeSignature(option)]
+            val ferryText = if (option.ferryUsed) "Feribot • ücret doğrulanmadı" else "Feribot yok"
+            val tollText = when {
+                !option.toll -> "Ücretsiz • ücretli geçiş tespit edilmedi"
+                option.tollAmountTry != null -> "Ücretli • %.0f TL".format(option.tollAmountTry) + (option.tollName?.let { " • $it" } ?: "")
+                else -> "Ücretli • tutar doğrulanamadı"
+            }
+            val durationText = traffic?.durationLabel() ?: "%.0f dk".format(option.durationSeconds / 60.0)
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(18, 12, 18, 12)
+                background = rounded(if (index == 0) 0xFFEAF3FF.toInt() else 0xFFF6F8FA.toInt(), 18f)
+                setOnClickListener { applyRoute(option, false) }
+            }
+            card.addView(TextView(this).apply { text = if (index == 0) "ÖNERİLEN • ${option.title}" else option.title; textSize = 16f; setTypeface(typeface, android.graphics.Typeface.BOLD) })
+            card.addView(TextView(this).apply { text = "%.1f km • $durationText".format(option.distanceKm); textSize = 14f; setPadding(0, 4, 0, 2) })
+            if (traffic?.trafficApplied == true) {
+                card.addView(TextView(this).apply { text = "Canlı trafik sıralaması uygulandı • +%.0f dk".format(traffic.delaySeconds / 60.0); textSize = 12f })
+            }
+            card.addView(TextView(this).apply { text = tollText; textSize = 12f })
+            card.addView(TextView(this).apply { text = ferryText; textSize = 12f })
+            routePanel.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8 })
+        }
+        val trafficCount = trafficByRoute.values.count { it.trafficApplied }
+        status.text = if (trafficCount > 0) {
+            "${sorted.size} rota hazır • trafik sıralaması uygulandı"
+        } else {
+            "${sorted.size} rota seçeneği hazır • trafik verisi uygulanmadı"
+        }
+    }
+
+    private fun applyRoute'''
+          text, count = render_pattern.subn(render_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('renderRouteOptions patch target not found')
+
+          path.write_text(text)
+          PY
+
+      - name: Verify patch compiles
+        run: |
+          ./gradlew test --stacktrace
+
+      - name: Commit integration and remove one-time workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/haritalar/app/MainActivity.kt .github/workflows/integrate-traffic-ranking.yml
+          git commit -m "feat(traffic): connect ranking chain to seven route cards"
+          git rm .github/workflows/integrate-traffic-ranking.yml
+          git commit -m "chore(ci): remove one-time traffic integration workflow"
+          git push
