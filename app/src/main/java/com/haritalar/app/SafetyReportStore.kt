@@ -28,6 +28,10 @@ object SafetyReportStore {
         latitude.isFinite() && longitude.isFinite() &&
             latitude in -90.0..90.0 && longitude in -180.0..180.0
 
+    /** Pure helper used by tests and sync adapters to apply explicit acknowledgements. */
+    fun filterAcknowledged(reports: List<Report>, acknowledgedIds: Collection<String>): List<Report> =
+        SafetyReportQueue.acknowledge(reports, acknowledgedIds) { it.id }
+
     @Synchronized
     fun enqueue(context: Context, type: Type, latitude: Double, longitude: Double, pointId: String? = null): Report? {
         if (!isValidCoordinate(latitude, longitude)) return null
@@ -53,7 +57,7 @@ object SafetyReportStore {
     @Synchronized
     fun acknowledge(context: Context, reportIds: Collection<String>): Int {
         val current = read(context)
-        val remaining = SafetyReportQueue.acknowledge(current, reportIds) { it.id }
+        val remaining = filterAcknowledged(current, reportIds)
         val removed = current.size - remaining.size
         if (removed > 0) write(context, remaining)
         return removed
