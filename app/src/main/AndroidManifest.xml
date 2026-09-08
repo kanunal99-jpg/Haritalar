@@ -9,7 +9,7 @@
         android:label="Haritalar"
         android:allowBackup="true">
         <activity
-            android:name=".MainActivity"
+            android:name=".BrowseMainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
