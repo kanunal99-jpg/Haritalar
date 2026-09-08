@@ -7,19 +7,29 @@ object NavigationTrackingPolicy {
         NAVIGATION,
     }
 
+    enum class CameraMode {
+        NONE_GPS,
+        TRACKING_GPS,
+    }
+
+    enum class RenderMode {
+        NORMAL,
+        GPS,
+    }
+
     data class State(
-        val cameraModeName: String,
-        val renderModeName: String,
+        val cameraMode: CameraMode,
+        val renderMode: RenderMode,
     )
 
     fun stateFor(mode: Mode): State = when (mode) {
         Mode.BROWSE -> State(
-            cameraModeName = "NONE_GPS",
-            renderModeName = "NORMAL",
+            cameraMode = CameraMode.NONE_GPS,
+            renderMode = RenderMode.NORMAL,
         )
         Mode.NAVIGATION -> State(
-            cameraModeName = "TRACKING_GPS",
-            renderModeName = "GPS",
+            cameraMode = CameraMode.TRACKING_GPS,
+            renderMode = RenderMode.GPS,
         )
     }
 }
