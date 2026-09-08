@@ -47,6 +47,8 @@ class SafetyRouteAlertCoordinator(
     /**
      * Collapses records that describe the same safety point from different providers.
      * The most authoritative record wins; different safety types remain distinct.
+     * Records with explicit, materially different travel directions remain distinct
+     * because they can represent separate enforcement for opposite traffic flows.
      */
     fun deduplicate(points: List<SafetyPoint>): List<SafetyPoint> {
         if (points.size < 2) return points
@@ -54,6 +56,7 @@ class SafetyRouteAlertCoordinator(
         for (candidate in points) {
             val duplicateIndex = result.indexOfFirst { existing ->
                 existing.type == candidate.type &&
+                    directionsCompatible(existing.directionBearingDegrees, candidate.directionBearingDegrees) &&
                     distanceMeters(existing.latitude, existing.longitude, candidate.latitude, candidate.longitude) <= duplicatePointToleranceMeters
             }
             if (duplicateIndex < 0) {
@@ -88,6 +91,12 @@ class SafetyRouteAlertCoordinator(
 
     fun reset(pointId: String) = engine.reset(pointId)
 
+    private fun directionsCompatible(a: Double?, b: Double?): Boolean {
+        if (a == null || b == null) return true
+        val delta = abs(((a - b + 540.0) % 360.0) - 180.0)
+        return delta <= 55.0
+    }
+
     private fun authority(point: SafetyPoint): Int {
         val source = when (point.source) {
             DataSource.LIVE -> 40
@@ -119,7 +128,7 @@ class SafetyRouteAlertCoordinator(
             val b = route[i + 1]
             val segment = haversineMeters(a.latitude, a.longitude, b.latitude, b.longitude)
             val projection = projectSegment(latitude, longitude, a, b)
-            val progress = i.toDouble().let { if (segment == 0.0) 0.0 else projection.fraction * segment }
+            val progress = if (segment == 0.0) 0.0 else projection.fraction * segment
             val candidate = Projection(progress + segmentPrefix(route, i), projection.distanceMeters)
             if (best == null || candidate.distanceMeters < best!!.distanceMeters) best = candidate
         }
