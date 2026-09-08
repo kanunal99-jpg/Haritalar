@@ -22,6 +22,10 @@ object NavigationTrackingPolicy {
         val renderMode: RenderMode,
     )
 
+    /** Converts the activity's navigation flag into one deterministic tracking mode. */
+    fun modeFor(navigationActive: Boolean): Mode =
+        if (navigationActive) Mode.NAVIGATION else Mode.BROWSE
+
     fun stateFor(mode: Mode): State = when (mode) {
         Mode.BROWSE -> State(
             cameraMode = CameraMode.NONE_GPS,
