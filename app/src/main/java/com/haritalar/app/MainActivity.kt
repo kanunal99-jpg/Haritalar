@@ -26,6 +26,7 @@ import com.haritalar.core.navigation.NavigationPoiDetails
 import com.haritalar.core.navigation.NavigationProgressEngine
 import com.haritalar.core.navigation.ValhallaRoutePolicy
 import com.haritalar.core.navigation.TollBridge
+import com.haritalar.core.traffic.TrafficRouteRanking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
@@ -86,6 +87,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var rerouteInFlight = false
     private var lastRerouteAt = 0L
     private val navigationEngine = NavigationProgressEngine()
+    private val trafficRankingService = TrafficEngineFactory.createRankingService()
     private var ttsReady = false
     private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
     private var routeGeneration = 0
@@ -474,16 +476,45 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             Triple("Ücretsiz + feribotsuz", "Ücretli yol ve feribottan kaçınmayı dener", "no_toll_no_ferry"),
         )
         val results = Collections.synchronizedList(mutableListOf<RouteOption>())
+        val remaining = java.util.concurrent.atomic.AtomicInteger(specs.size)
+
+        fun rankAndRenderIfComplete() {
+            if (remaining.decrementAndGet() != 0) return
+            val snapshot = results.toList()
+            routeExecutor.execute {
+                val trafficByRoute = runCatching {
+                    val candidates = snapshot.map { option ->
+                        TrafficRouteRanking.RouteCandidate(
+                            routeId = routeSignature(option),
+                            coordinates = option.points.map { GeoCoordinate(it.latitude, it.longitude) },
+                            baseDurationSeconds = option.durationSeconds.coerceAtLeast(0.0).roundToLong(),
+                        )
+                    }
+                    val ranked = trafficRankingService.rankBlocking(candidates)
+                    RouteTrafficPresentation.fromRanked(ranked)
+                        .let { models -> candidates.map { it.routeId }.zip(models).toMap() }
+                }.getOrElse { emptyMap() }
+
+                runOnUiThread {
+                    if (generation == routeGeneration) renderRouteOptions(snapshot, trafficByRoute)
+                }
+            }
+        }
+
         specs.forEach { spec ->
             routeExecutor.execute {
                 try {
                     val option = fetchRoute(origin.latitude, origin.longitude, target.latitude, target.longitude, spec.first, spec.second, spec.third)
                     results.add(option)
-                    runOnUiThread { if (generation == routeGeneration) renderRouteOptions(results.toList()) }
+                    runOnUiThread {
+                        if (generation == routeGeneration) renderRouteOptions(results.toList())
+                    }
                 } catch (e: Exception) {
                     runOnUiThread {
                         if (generation == routeGeneration && results.isEmpty()) status.text = "Rota hazırlanamadı • ${e.message ?: "ağ hatası"}"
                     }
+                } finally {
+                    rankAndRenderIfComplete()
                 }
             }
         }
@@ -534,16 +565,27 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         return "$start|$end|${option.points.size}|${"%.1f".format(option.totalMeters)}|${option.ferryUsed}"
     }
 
-    private fun renderRouteOptions(options: List<RouteOption>) {
+    private fun renderRouteOptions(
+        options: List<RouteOption>,
+        trafficByRoute: Map<String, RouteTrafficUiModel> = emptyMap(),
+    ) {
         routePanel.removeAllViews()
         routePanel.addView(TextView(this).apply { text = "Rota seçenekleri"; textSize = 21f; setPadding(4, 0, 4, 8) })
-        options.distinctBy { routeSignature(it) }.sortedWith(compareBy<RouteOption> { it.durationSeconds }.thenBy { it.distanceKm }).forEachIndexed { index, option ->
+
+        val distinct = options.distinctBy { routeSignature(it) }
+        val sorted = distinct.sortedWith(
+            compareBy<RouteOption> { trafficByRoute[routeSignature(it)]?.adjustedDurationSeconds ?: it.durationSeconds }
+                .thenBy { it.distanceKm }
+        )
+        sorted.forEachIndexed { index, option ->
+            val traffic = trafficByRoute[routeSignature(option)]
             val ferryText = if (option.ferryUsed) "Feribot • ücret doğrulanmadı" else "Feribot yok"
             val tollText = when {
                 !option.toll -> "Ücretsiz • ücretli geçiş tespit edilmedi"
                 option.tollAmountTry != null -> "Ücretli • %.0f TL".format(option.tollAmountTry) + (option.tollName?.let { " • $it" } ?: "")
                 else -> "Ücretli • tutar doğrulanamadı"
             }
+            val durationText = traffic?.durationLabel() ?: "%.0f dk".format(option.durationSeconds / 60.0)
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(18, 12, 18, 12)
@@ -551,12 +593,20 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 setOnClickListener { applyRoute(option, false) }
             }
             card.addView(TextView(this).apply { text = if (index == 0) "ÖNERİLEN • ${option.title}" else option.title; textSize = 16f; setTypeface(typeface, android.graphics.Typeface.BOLD) })
-            card.addView(TextView(this).apply { text = "%.1f km • %.0f dk".format(option.distanceKm, option.durationSeconds / 60.0); textSize = 14f; setPadding(0, 4, 0, 2) })
+            card.addView(TextView(this).apply { text = "%.1f km • $durationText".format(option.distanceKm); textSize = 14f; setPadding(0, 4, 0, 2) })
+            if (traffic?.trafficApplied == true) {
+                card.addView(TextView(this).apply { text = "Canlı trafik sıralaması uygulandı • +%.0f dk".format(traffic.delaySeconds / 60.0); textSize = 12f })
+            }
             card.addView(TextView(this).apply { text = tollText; textSize = 12f })
             card.addView(TextView(this).apply { text = ferryText; textSize = 12f })
             routePanel.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8 })
         }
-        status.text = "${options.size} rota seçeneği hazır"
+        val trafficCount = trafficByRoute.values.count { it.trafficApplied }
+        status.text = if (trafficCount > 0) {
+            "${sorted.size} rota hazır • trafik sıralaması uygulandı"
+        } else {
+            "${sorted.size} rota seçeneği hazır • trafik verisi uygulanmadı"
+        }
     }
 
     private fun applyRoute(option: RouteOption, isReroute: Boolean) {
