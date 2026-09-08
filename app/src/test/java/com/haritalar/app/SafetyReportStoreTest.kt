@@ -1,5 +1,6 @@
 package com.haritalar.app
 
+import com.haritalar.core.safety.SafetyReportQueue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -39,7 +40,7 @@ class SafetyReportStoreTest {
     @Test fun `acknowledgement removes only accepted ids`() {
         val reports = listOf(report("accepted"), report("pending"), report("rejected"))
 
-        val remaining = SafetyReportStore.filterAcknowledged(reports, listOf("accepted"))
+        val remaining = SafetyReportQueue.acknowledge(reports, listOf("accepted")) { it.id }
 
         assertEquals(listOf("pending", "rejected"), remaining.map { it.id })
     }
@@ -47,7 +48,7 @@ class SafetyReportStoreTest {
     @Test fun `unknown acknowledgement cannot delete queued report`() {
         val reports = listOf(report("one"), report("two"))
 
-        val remaining = SafetyReportStore.filterAcknowledged(reports, listOf("server-only"))
+        val remaining = SafetyReportQueue.acknowledge(reports, listOf("server-only")) { it.id }
 
         assertEquals(reports.map { it.id }, remaining.map { it.id })
     }
@@ -55,7 +56,7 @@ class SafetyReportStoreTest {
     @Test fun `blank acknowledgements do not change queue`() {
         val reports = listOf(report("one"), report("two"))
 
-        val remaining = SafetyReportStore.filterAcknowledged(reports, listOf("", "  "))
+        val remaining = SafetyReportQueue.acknowledge(reports, listOf("", "  ")) { it.id }
 
         assertEquals(reports, remaining)
     }
