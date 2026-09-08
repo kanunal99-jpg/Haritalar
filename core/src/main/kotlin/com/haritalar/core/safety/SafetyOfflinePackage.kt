@@ -26,6 +26,9 @@ object SafetyOfflinePackageValidator {
         return true
     }
 
+    /** Public point-level guard for adapters that parse the package incrementally. */
+    fun isValidOfflinePoint(point: SafetyPoint): Boolean = validPoint(point)
+
     private fun validRegion(region: SafetyOfflineRegion): Boolean {
         if (region.id.isBlank()) return false
         if (region.points.size > MAX_POINTS_PER_REGION) return false
