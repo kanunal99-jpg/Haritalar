@@ -7,9 +7,14 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TrafficRouteRankingTest {
-    private val route = listOf(
+    private val congestedRoute = listOf(
         GeoCoordinate(41.0000, 29.0000),
         GeoCoordinate(41.0100, 29.0000),
+    )
+
+    private val clearRoute = listOf(
+        GeoCoordinate(41.0000, 29.0020),
+        GeoCoordinate(41.0100, 29.0020),
     )
 
     private fun snapshot(
@@ -23,7 +28,7 @@ class TrafficRouteRankingTest {
                 speedKmh = speedKmh,
                 freeFlowSpeedKmh = 60.0,
                 confidence = confidence,
-                geometry = route,
+                geometry = congestedRoute,
             ),
         ),
         fetchedAtEpochMs = 1_000L,
@@ -34,8 +39,8 @@ class TrafficRouteRankingTest {
     @Test
     fun `verified traffic can change route ordering`() {
         val routes = listOf(
-            TrafficRouteRanking.RouteCandidate("slow-route", route, 600L),
-            TrafficRouteRanking.RouteCandidate("fast-route", route, 700L),
+            TrafficRouteRanking.RouteCandidate("slow-route", congestedRoute, 600L),
+            TrafficRouteRanking.RouteCandidate("fast-route", clearRoute, 700L),
         )
 
         val ranked = TrafficRouteRanking.rank(
@@ -47,14 +52,15 @@ class TrafficRouteRankingTest {
 
         assertEquals("fast-route", ranked.first().routeId)
         assertTrue(ranked.first().adjustedDurationSeconds < ranked.last().adjustedDurationSeconds)
-        assertTrue(ranked.any { it.trafficApplied })
+        assertTrue(ranked.single { it.routeId == "slow-route" }.trafficApplied)
+        assertFalse(ranked.single { it.routeId == "fast-route" }.trafficApplied)
     }
 
     @Test
     fun `missing snapshot preserves provider eta`() {
         val routes = listOf(
-            TrafficRouteRanking.RouteCandidate("a", route, 600L),
-            TrafficRouteRanking.RouteCandidate("b", route, 700L),
+            TrafficRouteRanking.RouteCandidate("a", congestedRoute, 600L),
+            TrafficRouteRanking.RouteCandidate("b", clearRoute, 700L),
         )
 
         val ranked = TrafficRouteRanking.rank(routes, null, nowEpochMs = 2_000L)
@@ -66,7 +72,7 @@ class TrafficRouteRankingTest {
     @Test
     fun `expired snapshot is ignored`() {
         val ranked = TrafficRouteRanking.rank(
-            routes = listOf(TrafficRouteRanking.RouteCandidate("a", route, 600L)),
+            routes = listOf(TrafficRouteRanking.RouteCandidate("a", congestedRoute, 600L)),
             snapshot = snapshot(20.0),
             nowEpochMs = 10_000L,
         )
@@ -78,7 +84,7 @@ class TrafficRouteRankingTest {
     @Test
     fun `low confidence snapshot is ignored`() {
         val ranked = TrafficRouteRanking.rank(
-            routes = listOf(TrafficRouteRanking.RouteCandidate("a", route, 600L)),
+            routes = listOf(TrafficRouteRanking.RouteCandidate("a", congestedRoute, 600L)),
             snapshot = snapshot(20.0, TrafficConfidence.LOW),
             nowEpochMs = 2_000L,
         )
