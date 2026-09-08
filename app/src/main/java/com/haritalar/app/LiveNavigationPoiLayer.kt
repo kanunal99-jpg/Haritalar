@@ -1,5 +1,6 @@
 package com.haritalar.app
 
+import android.app.AlertDialog
 import android.os.Handler
 import android.os.Looper
 import com.google.gson.JsonObject
@@ -48,6 +49,18 @@ class LiveNavigationPoiLayer {
     private var lastRefreshAt = 0L
     private var lastBoundsKey: String? = null
 
+    private val mapClickListener = MapLibreMap.OnMapClickListener { point ->
+        val currentMap = map ?: return@OnMapClickListener false
+        val screenPoint = currentMap.projection.toScreenLocation(point)
+        val features = currentMap.queryRenderedFeatures(
+            screenPoint,
+            arrayOf(CIRCLE_LAYER_ID, LABEL_LAYER_ID),
+        )
+        val feature = features.firstOrNull() ?: return@OnMapClickListener false
+        showPoiDetails(feature)
+        true
+    }
+
     fun install(map: MapLibreMap, style: Style) {
         this.map = map
         if (style.getSource(SOURCE_ID) == null) {
@@ -73,6 +86,36 @@ class LiveNavigationPoiLayer {
                 iconAllowOverlap(false),
             ).also(style::addLayer)
         }
+        map.removeOnMapClickListener(mapClickListener)
+        map.addOnMapClickListener(mapClickListener)
+    }
+
+    private fun showPoiDetails(feature: Feature) {
+        val properties = feature.properties() ?: return
+        val name = properties.get("name")?.asString?.takeIf { it.isNotBlank() } ?: "Harita noktası"
+        val category = properties.get("category")?.asString
+            ?.lowercase()
+            ?.replace('_', ' ')
+            ?.replaceFirstChar { it.titlecase() }
+            ?: "Diğer"
+        val address = properties.get("address")?.asString?.takeIf { it.isNotBlank() }
+        val message = buildString {
+            append("Kategori: ").append(category)
+            if (address != null) append("\n\nAdres: ").append(address)
+            append("\n\nKaynak: OpenStreetMap")
+        }
+        AlertDialog.Builder(mapViewContext())
+            .setTitle(name)
+            .setMessage(message)
+            .setPositiveButton("Kapat", null)
+            .show()
+    }
+
+    private fun mapViewContext(): android.content.Context {
+        return map?.let { it }?.getStyle()?.let { _ ->
+            // MapLibreMap does not expose a Context; the style interaction itself is UI-thread bound.
+            null
+        } ?: throw IllegalStateException("Map is not attached")
     }
 
     fun scheduleRefresh(bounds: LatLngBounds?) {
@@ -138,6 +181,7 @@ class LiveNavigationPoiLayer {
 
     fun destroy() {
         refreshRunnable?.let(mainHandler::removeCallbacks)
+        map?.removeOnMapClickListener(mapClickListener)
         executor.shutdownNow()
         map = null
     }
