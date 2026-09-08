@@ -44,6 +44,7 @@ object SafetyAlertLifecycleBridge {
     private var generation = 0
     private var card: TextView? = null
     private var lastAlertKey: String? = null
+    private var hideCardRunnable: Runnable? = null
 
     fun install(app: Application) {
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
@@ -156,12 +157,15 @@ object SafetyAlertLifecycleBridge {
             val root = a.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0) as? FrameLayout ?: return@runOnUiThread
             val v = card ?: TextView(a).also { card = it; root.addView(it, FrameLayout.LayoutParams(-1, -2).apply { gravity = Gravity.TOP; leftMargin = 16; rightMargin = 16; topMargin = 156 }) }
             v.text = text; v.textSize = if (alert.level.name == "FINAL") 20f else 18f; v.gravity = Gravity.CENTER; v.setTextColor(-1); v.setPadding(20, 18, 20, 18); v.background = GradientDrawable().apply { setColor(0xFFB71C1C.toInt()); cornerRadius = 22f }; v.visibility = View.VISIBLE
-            v.removeCallbacksAndMessages(null); v.postDelayed({ v.visibility = View.GONE }, ALERT_VISIBLE_MS)
+            hideCardRunnable?.let { v.removeCallbacks(it) }
+            val hide = Runnable { v.visibility = View.GONE }
+            hideCardRunnable = hide
+            v.postDelayed(hide, ALERT_VISIBLE_MS)
             runCatching { MainActivity::class.java.getDeclaredMethod("speak", String::class.java, Boolean::class.javaPrimitiveType).also { it.isAccessible = true }.invoke(a, "Dikkat. $text", true) }
         }
     }
 
-    private fun hideCard() { handler.post { card?.visibility = View.GONE } }
+    private fun hideCard() { handler.post { hideCardRunnable?.let { card?.removeCallbacks(it) }; hideCardRunnable = null; card?.visibility = View.GONE } }
     private fun field(a: Activity, name: String): Any? = runCatching { MainActivity::class.java.getDeclaredField(name).also { it.isAccessible = true }.get(a) }.getOrNull()
     private fun latLngs(a: Activity): List<Pair<Double, Double>> = runCatching { ((field(a, "routePoints") as? List<Any>).orEmpty()).map { it.javaClass.getMethod("getLatitude").invoke(it) as Double to it.javaClass.getMethod("getLongitude").invoke(it) as Double } }.getOrDefault(emptyList())
     private fun progress(route: List<Pair<Double, Double>>, cumulative: List<Double>, l: Location): Double { var best = Double.MAX_VALUE; var p = 0.0; for (i in 0 until route.lastIndex) { val x = project(l.latitude, l.longitude, route[i], route[i + 1]); if (x.second < best) { best = x.second; p = cumulative[i] + x.first * distance(route[i], route[i + 1]) } }; return max(0.0, p) }
