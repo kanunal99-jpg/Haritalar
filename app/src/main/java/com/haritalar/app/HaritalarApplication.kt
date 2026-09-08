@@ -34,6 +34,7 @@ class HaritalarApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         SafetyAlertLifecycleBridge.install(this)
+        SafetyReportUiBridge.install(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 if (activity is MainActivity) {
