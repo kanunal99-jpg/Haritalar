@@ -94,4 +94,16 @@ class SafetyRouteAlertCoordinatorTest {
         val far = point.copy(id = "far", longitude = 29.00600)
         assertEquals(2, coordinator.deduplicate(listOf(point, far)).size)
     }
+
+    @Test fun keepsOppositeDirectionPointsDistinct() {
+        val coordinator = SafetyRouteAlertCoordinator()
+        val opposite = point.copy(id = "camera-opposite", directionBearingDegrees = 270.0)
+        assertEquals(2, coordinator.deduplicate(listOf(point, opposite)).size)
+    }
+
+    @Test fun mergesNearbyCompatibleDirections() {
+        val coordinator = SafetyRouteAlertCoordinator()
+        val nearbyDirection = point.copy(id = "camera-near-direction", directionBearingDegrees = 120.0)
+        assertEquals(1, coordinator.deduplicate(listOf(point, nearbyDirection)).size)
+    }
 }
