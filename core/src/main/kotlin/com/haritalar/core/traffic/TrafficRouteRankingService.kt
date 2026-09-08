@@ -61,8 +61,11 @@ class TrafficRouteRankingService(
 
         val completed = CountDownLatch(1)
         val result = AtomicReference<Result<List<TrafficRouteRanking.RankedCandidate>>?>()
+        val rankingBlock: suspend () -> List<TrafficRouteRanking.RankedCandidate> = {
+            rank(routes, nowEpochMs)
+        }
 
-        rank(routes, nowEpochMs).startCoroutine(object : Continuation<List<TrafficRouteRanking.RankedCandidate>> {
+        rankingBlock.startCoroutine(object : Continuation<List<TrafficRouteRanking.RankedCandidate>> {
             override val context = EmptyCoroutineContext
 
             override fun resumeWith(value: Result<List<TrafficRouteRanking.RankedCandidate>>) {
