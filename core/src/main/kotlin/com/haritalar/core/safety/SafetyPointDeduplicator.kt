@@ -2,30 +2,19 @@ package com.haritalar.core.safety
 
 import kotlin.math.*
 
-/**
- * Deterministically merges overlapping safety records without promoting user reports.
- * Exact IDs are always merged; otherwise records of the same type within the spatial
- * tolerance are merged when their directions are compatible.
- */
+/** Deterministically merges overlapping safety records without promoting user reports. */
 object SafetyPointDeduplicator {
     private const val DEFAULT_DISTANCE_METERS = 50.0
     private const val DIRECTION_TOLERANCE_DEGREES = 55.0
 
-    fun deduplicate(
-        points: List<SafetyPoint>,
-        distanceMeters: Double = DEFAULT_DISTANCE_METERS,
-    ): List<SafetyPoint> {
+    fun deduplicate(points: List<SafetyPoint>, distanceMeters: Double = DEFAULT_DISTANCE_METERS): List<SafetyPoint> {
         if (points.isEmpty()) return emptyList()
         require(distanceMeters >= 0.0 && distanceMeters.isFinite())
-
         val result = mutableListOf<SafetyPoint>()
         for (point in points) {
             val existingIndex = result.indexOfFirst { equivalent(it, point, distanceMeters) }
-            if (existingIndex < 0) {
-                result += point
-            } else {
-                result[existingIndex] = chooseWinner(result[existingIndex], point)
-            }
+            if (existingIndex < 0) result += point
+            else result[existingIndex] = chooseWinner(result[existingIndex], point)
         }
         return result.sortedBy { it.id }
     }
@@ -41,11 +30,12 @@ object SafetyPointDeduplicator {
     }
 
     private fun chooseWinner(a: SafetyPoint, b: SafetyPoint): SafetyPoint {
-        if (a.id.isNotBlank() && a.id == b.id) return merge(a, b)
+        val aRank = trustRank(a)
+        val bRank = trustRank(b)
         return when {
-            trustRank(b) > trustRank(a) -> merge(b, a)
-            trustRank(a) > trustRank(b) -> merge(a, b)
-            b.confidence.ordinal > a.confidence.ordinal -> merge(b, a)
+            bRank > aRank -> merge(b, a)
+            aRank > bRank -> merge(a, b)
+            confidenceRank(b.confidence) > confidenceRank(a.confidence) -> merge(b, a)
             else -> merge(a, b)
         }
     }
@@ -61,16 +51,16 @@ object SafetyPointDeduplicator {
         DataSource.OFFLINE -> 2
         DataSource.CACHE -> 3
         DataSource.LIVE -> 4
-    } + when (point.confidence) {
+    }
+
+    private fun confidenceRank(confidence: Confidence): Int = when (confidence) {
         Confidence.LOW -> 0
         Confidence.MEDIUM -> 1
         Confidence.HIGH -> 2
     }
 
-    private fun angularDifference(a: Double, b: Double): Double {
-        val delta = abs(((a - b) % 360.0 + 540.0) % 360.0 - 180.0)
-        return delta
-    }
+    private fun angularDifference(a: Double, b: Double): Double =
+        abs(((a - b) % 360.0 + 540.0) % 360.0 - 180.0)
 
     private fun distanceMeters(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Double {
         val earth = 6_371_000.0
