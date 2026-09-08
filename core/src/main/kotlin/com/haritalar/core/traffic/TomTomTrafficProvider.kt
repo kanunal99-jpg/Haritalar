@@ -130,12 +130,14 @@ class UrlConnectionTomTomTrafficHttpClient : TomTomTrafficHttpClient {
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "Haritalar-Android-Traffic/1.0")
         }
-        return connection.use { http ->
-            val code = http.responseCode
-            val stream = if (code in 200..299) http.inputStream else http.errorStream
+        return try {
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) error("TomTom Flow HTTP $code")
             body
+        } finally {
+            connection.disconnect()
         }
     }
 }
