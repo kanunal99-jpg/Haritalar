@@ -23,12 +23,18 @@ object TrafficRouteCostModel {
     }
 
     private fun durationFactor(segment: TrafficSegment): Double {
-        if (segment.closure) return 1.0
+        // A verified closure must materially penalize the route even when the
+        // provider cannot supply live/free-flow speeds for the closed segment.
+        if (segment.closure) return CLOSED_SEGMENT_FACTOR
+
         val live = segment.speedKmh
         val freeFlow = segment.freeFlowSpeedKmh
         if (live == null || freeFlow == null || live <= 0.0 || freeFlow <= 0.0) return 1.0
-        return (freeFlow / live).coerceIn(1.0, 6.0)
+        return (freeFlow / live).coerceIn(1.0, MAX_CONGESTION_FACTOR)
     }
+
+    private const val MAX_CONGESTION_FACTOR = 6.0
+    private const val CLOSED_SEGMENT_FACTOR = 6.0
 }
 
 data class TrafficRouteSegment(
