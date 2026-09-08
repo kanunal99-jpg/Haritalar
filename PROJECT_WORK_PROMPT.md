@@ -32,11 +32,13 @@ Kritik zincir:
 
 `TrafficRouteRankingService` route seti için en fazla bir provider-chain snapshot alır ve geometry-aware ranking uygular. Empty/invalid route, provider/network failure, expired/mismatch/LOW-confidence traffic durumlarında base ETA korunur. `rankBlocking()` suspend `rank()` fonksiyonunu bounded 120 saniyelik blocking bridge üzerinden mevcut Executor akışına bağlar ve ana thread'de kullanılmamalıdır.
 
-## TomTom / credential
+## TomTom / credential / refresh
 
 `TomTomTrafficProvider` gerçek TomTom Flow Segment Data endpointini kullanır; key boşsa pasiftir, scraping yoktur ve snapshot/segment doğrulamaları uygulanır. `app/build.gradle.kts` TOMTOM_API_KEY'i Gradle property veya environment variable'dan alır ve `BuildConfig.TOMTOM_API_KEY` üretir. `TrafficEngineFactory`: BuildConfig → TomTomTrafficProvider → TrafficProviderChain → TrafficRouteRankingService.
 
 Gerçek credential sağlanmadığı için canlı TomTom trafiğinin aktif olduğu iddia edilmez. Key yokken base Valhalla ETA korunur.
+
+TomTom örnek noktaları route başına en fazla 8 ile sınırlıdır. Aynı yaklaşık 1e-6 derece sample noktası 30 saniyelik kısa provider-cache içinde tekrar HTTP çağrısı yapmadan kullanılabilir. Cache süresi dolduğunda gerçek provider yeniden sorgulanır. Bu cache yalnız gerçek TomTom segment cevabını tutar; sentetik trafik üretmez.
 
 ## 7 rota kartı trafik entegrasyonu
 
@@ -48,33 +50,22 @@ Trafik uygulanmadığında kart temel Valhalla ETA'sını gösterir. Doğrulanm�
 
 ## Bu turda gerçek değişiklikler — 2026-09-08
 
-1. `282a4084eb8cfa97e74619b2714cfbbe9ea7d288` — route-card traffic presentation identity fix için patch script güncellendi.
-2. `848de857bea27ce6b941664f11658c9a0f0da757` — MainActivity 7 rota kartına ranking/presentation entegrasyonu GitHub Actions tarafından gerçek kaynak koda uygulandı.
-3. `0a2bf30f71578f14bf9843ccd4a470969eb0af2b` — `TrafficRouteRankingService.rankBlocking()` içindeki coroutine invocation compile hatası düzeltildi; suspend lambda üzerinden `startCoroutine` kullanılıyor.
-4. `8b4e0f8453000b3121f60e0a23ac3cf8b5b3d5df` — bu turdaki ara yaşayan durum kaydı.
-5. `b27b5992ab1bedceb73929706563624d4d3f79b3` — CI'ın kaynak kodu değiştirmesini kaldıran workflow düzenlemesi.
-6. `1609972c4320855869d7d89126d61ebbee64ef4d` — obsolete `scripts/integrate_traffic_ranking.py` silindi.
-7. Bu doküman güncellemesi ile güncel HEAD tekrar doğrulanmış durumla senkronize ediliyor.
+- `43e3f0963dcefffe9504f133f57db88bb2897082` — TomTom örnek noktaları için bounded 30 saniyelik in-memory cache eklendi; süresi dolmuş cache kullanılmıyor ve credential yoksa provider inert kalıyor.
+- `7ee7b2a4a378e2ac3eacbb4f93fd3691189f3ebf` — cache hit/cooldown ve TTL sonrası gerçek HTTP refresh davranışını doğrulayan unit testler eklendi.
+- Bu doküman güncellemesi ile yaşayan durum yeniden senkronize ediliyor.
 
 ## CI / APK — doğrulanmış
 
-- Run `299` (`34274046287`) **failure**: `TrafficRouteRankingService.kt:65` suspend `rank()` coroutine dışından çağrıldığı için compile error; APK build atlandı.
-- Run `300` (`34274183521`) **success** ve HEAD `0a2bf30f71578f14bf9843ccd4a470969eb0af2b` için unit tests + debug APK build başarılı.
-- Run `300` APK artifact: `haritalar-debug-apk-300`; artifact digest `sha256:81c662300474b06f6e2821bab6cc24e386546786d799b3b29d4a2a4387386a9c`.
-- Run `300` artifact içindeki `app-debug.apk` SHA-256: `da2c122ef16c81558dca2aa14d8a32dc7f1f6e38938f0b3b6f5c8e6d820915a6`.
-- Run `303` (`34274419418`) **success** ve güncel kaynak ağacındaki traffic integration cleanup sonrası HEAD `1609972c4320855869d7d89126d61ebbee64ef4d` için unit tests + debug APK build başarılı.
-- Run `303` APK artifact: `haritalar-debug-apk-303`; artifact digest `sha256:57809a47d28ca3084f3459f5b61fd1ad9f96e2e456cce52b29070bee69821cb3`.
+Önceki doğrulanmış build:
+- Run `303` (`34274419418`) **success** ve HEAD `1609972c4320855869d7d89126d61ebbee64ef4d` için unit tests + debug APK build başarılı.
+- Run `303` APK artifact: `haritalar-debug-apk-303`.
 - Run `303` artifact içindeki `app-debug.apk` SHA-256: `cb599f1c47e871e3daec0c7705b98bf57da3b26909c9a697f1a794110fe3fe59`.
-- Run `303` APK **gerçekten hazır/doğrulandı**.
+
+Bu turdaki yeni cache/test commitleri için yeni CI sonucu henüz doğrulanmış değildir. Bu nedenle bu yeni HEAD için APK hazır denmez.
 
 ## Güncel HEAD
 
-**`1609972c4320855869d7d89126d61ebbee64ef4d`**
-
-Son commit:
-`chore: remove obsolete traffic integration patch script`
-
-`main` branch bu committe. Bu HEAD, route-card traffic integration kodunu kalıcı olarak repoda tutuyor ve CI workflow artık kaynak kodu değiştiren self-mutating patch adımı içermiyor.
+`PROJECT_WORK_PROMPT.md` güncellemesi bu turdaki kod/test commitlerinin üzerine yeni bir commit oluşturur. Bu dosyanın güncelleme commit SHA'sı GitHub'dan tekrar doğrulanacaktır.
 
 ## Başarılı / mevcut
 
@@ -96,18 +87,20 @@ Son commit:
 - route-generation tamamlanınca tek traffic ranking snapshot
 - stale generation UI guard
 - routeId-preserving traffic card presentation
-- güncel HEAD için başarılı unit tests
-- güncel HEAD için başarılı debug APK
+- TomTom sample request bound (8)
+- TomTom short-lived sample cache (30 s)
+- Run 303 için başarılı unit tests + debug APK
 
 ## Açık işler / sonraki hedef
 
-1. Gerçek TomTom credential olmadan canlı trafik iddiası yapma; credential sağlandığında gerçek smoke/integration test yap.
-2. Traffic refresh/cooldown/cache mekanizmasını GPS başına çağrı yapmayacak şekilde tamamla.
-3. Navigation sırasında live traffic refresh → ranking → UI zincirini bağla.
-4. Off-route/reroute sonrasında aynı traffic ranking/presentation zincirini kontrollü şekilde yeniden çalıştır.
-5. Gerçek traffic-adjusted ranking için integration/smoke coverage artır.
-6. HERE yalnız gerçek API erişimi, authentication, kota ve kullanım şartları doğrulanırsa değerlendir.
-7. Sonrasında safety/radar canlı veri kaynakları yalnız makine-okunabilir ve doğrulanmış resmi/topluluk API erişimi varsa entegre edilir.
+1. Yeni cache/test HEAD için CI'ı doğrula; başarısızsa düzelt.
+2. Gerçek TomTom credential olmadan canlı trafik iddiası yapma; credential sağlandığında gerçek smoke/integration test yap.
+3. Traffic refresh/cooldown/cache mekanizmasını provider-chain seviyesinde route-generation ve navigation refresh ile güvenli biçimde tamamla.
+4. Navigation sırasında live traffic refresh → ranking → UI zincirini bağla.
+5. Off-route/reroute sonrasında aynı traffic ranking/presentation zincirini kontrollü şekilde yeniden çalıştır.
+6. Gerçek traffic-adjusted ranking için integration/smoke coverage artır.
+7. HERE yalnız gerçek API erişimi, authentication, kota ve kullanım şartları doğrulanırsa değerlendir.
+8. Sonrasında safety/radar canlı veri kaynakları yalnız makine-okunabilir ve doğrulanmış resmi/topluluk API erişimi varsa entegre edilir.
 
 ## Gidilmeyecek yollar
 
@@ -125,4 +118,4 @@ Son commit:
 
 ## Sonraki Devam hedefi
 
-**Güncel HEAD `1609972c...` üzerinden gerçek TomTom traffic refresh/cache/cooldown katmanını incele; credential yoksa güvenli inert/fallback davranışını koru. Sonra navigation live-refresh → ranking → route-card/UI → off-route/reroute zincirini küçük ve doğrulanabilir adımlarla geliştir. Her tur sonunda bu dosyayı yeniden GitHub gerçekliğiyle güncelle.**
+**Yeni cache/test HEAD için CI sonucunu doğrula. Yeşil ise TomTom/provider-chain refresh kontrolünü navigation akışına bağlamak için mevcut navigation kodunu incele; GPS başına HTTP çağrısı yapılmayacak şekilde cooldown + stale generation + bounded background execution ile küçük bir entegrasyon yap. Gerçek credential yoksa inert/fallback davranışını koru.**
