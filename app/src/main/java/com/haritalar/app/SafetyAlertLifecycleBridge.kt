@@ -58,10 +58,10 @@ object SafetyAlertLifecycleBridge {
     }
 
     private fun schedule() {
-        handler.removeCallbacksAndMessages("safety")
+        handler.removeCallbacksAndMessages(null)
         handler.post(object : Runnable {
-            override fun run() { tick(); handler.postDelayed(this, POLL_MS, "safety") }
-        }, "safety")
+            override fun run() { tick(); handler.postDelayed(this, POLL_MS) }
+        })
     }
 
     private fun tick() {
