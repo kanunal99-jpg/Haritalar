@@ -49,6 +49,8 @@ data class TrafficSegment(
     val accident: Boolean = false,
     val directionBearingDegrees: Double? = null,
     val confidence: TrafficConfidence = TrafficConfidence.LOW,
+    /** Provider geometry used to verify that an observation belongs to a route. */
+    val geometry: List<GeoCoordinate> = emptyList(),
 )
 
 enum class TrafficCongestion { UNKNOWN, FREE, LIGHT, MODERATE, HEAVY, SEVERE }
