@@ -12,8 +12,8 @@ import org.maplibre.android.location.modes.RenderMode
  * while MainActivity can switch between browse and active-navigation tracking deterministically.
  */
 object NavigationLocationComponentController {
-    private val NAVIGATION_VIEWPORT_PADDING = arrayOf(0.0, 0.0, 0.0, 260.0)
-    private val BROWSE_VIEWPORT_PADDING = arrayOf(0.0, 0.0, 0.0, 0.0)
+    private val NAVIGATION_VIEWPORT_PADDING = doubleArrayOf(0.0, 0.0, 0.0, 260.0)
+    private val BROWSE_VIEWPORT_PADDING = doubleArrayOf(0.0, 0.0, 0.0, 0.0)
 
     fun apply(component: LocationComponent, navigationActive: Boolean) {
         apply(component, NavigationTrackingPolicy.modeFor(navigationActive))
