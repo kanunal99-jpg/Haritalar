@@ -13,19 +13,19 @@ object TrafficRouteOrchestrator {
     data class RouteCandidate(
         val id: String,
         val geometry: List<GeoCoordinate>,
-        val baseDurationSeconds: Double,
+        val baseDurationSeconds: Long,
     )
 
     data class RankedRoute(
         val candidate: RouteCandidate,
-        val trafficDurationSeconds: Double,
+        val trafficDurationSeconds: Long,
         val trafficApplied: Boolean,
     )
 
     fun rank(
         routes: List<RouteCandidate>,
         snapshot: TrafficSnapshot?,
-        expectedProviderId: String,
+        expectedProviderId: String? = null,
         nowEpochMs: Long,
     ): List<RankedRoute> {
         if (snapshot == null) {
@@ -33,7 +33,7 @@ object TrafficRouteOrchestrator {
         }
 
         val ranked = routes.map { route ->
-            val adapted = TrafficRouteAdapter.adapt(
+            val adapted = TrafficRouteAdapter.matchSnapshotToRoute(
                 route = route.geometry,
                 snapshot = snapshot,
                 expectedProviderId = expectedProviderId,
@@ -45,7 +45,7 @@ object TrafficRouteOrchestrator {
             } else {
                 RankedRoute(
                     candidate = route,
-                    trafficDurationSeconds = TrafficRouteCostModel.estimateDurationSeconds(
+                    trafficDurationSeconds = TrafficRouteCostModel.adjustedDurationSeconds(
                         baseDurationSeconds = route.baseDurationSeconds,
                         segments = adapted,
                     ),
