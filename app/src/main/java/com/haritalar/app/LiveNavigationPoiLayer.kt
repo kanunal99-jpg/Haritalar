@@ -2,32 +2,33 @@ package com.haritalar.app
 
 import android.os.Handler
 import android.os.Looper
+import com.google.gson.JsonObject
 import com.haritalar.core.navigation.NavigationPoi
-import com.haritalar.core.navigation.NavigationPoiCategory
 import com.haritalar.core.navigation.OsmPoiParser
 import com.haritalar.core.navigation.OsmPoiQuery
-import org.json.JSONObject
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
-import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.textAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.textField
 import org.maplibre.android.style.layers.PropertyFactory.textIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.textSize
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.concurrent.Executors
 
 /** Bounded, throttled live OSM POI overlay. No paid provider or API key is required. */
@@ -67,7 +68,7 @@ class LiveNavigationPoiLayer {
         if (style.getLayer(LABEL_LAYER_ID) == null) {
             style.addLayer(
                 SymbolLayer(LABEL_LAYER_ID, SOURCE_ID).withProperties(
-                    textField(com.mapbox.mapboxsdk.style.expressions.Expression.get("name")),
+                    textField(Expression.get("name")),
                     textSize(11f),
                     textAllowOverlap(false),
                     textIgnorePlacement(false),
@@ -107,7 +108,9 @@ class LiveNavigationPoiLayer {
                     setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
                     setRequestProperty("User-Agent", "Haritalar/1.0 (open-source navigation app)")
                 }
-                connection.outputStream.use { it.write(("data=" + java.net.URLEncoder.encode(query, "UTF-8")).toByteArray()) }
+                connection.outputStream.use {
+                    it.write(("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8))
+                }
                 val code = connection.responseCode
                 if (code !in 200..299) error("Overpass HTTP $code")
                 val body = connection.inputStream.bufferedReader().use { it.readText() }
@@ -123,14 +126,12 @@ class LiveNavigationPoiLayer {
         val style = map?.style ?: return
         val source = style.getSource(SOURCE_ID) as? GeoJsonSource ?: return
         val features = pois.map { poi ->
-            Feature.fromGeometry(
-                Point.fromLngLat(poi.longitude, poi.latitude),
-                JSONObject().apply {
-                    put("name", poi.name)
-                    put("category", poi.category.name)
-                    put("address", poi.address ?: "")
-                }.let { com.google.gson.JsonParser.parseString(it.toString()).asJsonObject },
-            )
+            val properties = JsonObject().apply {
+                addProperty("name", poi.name)
+                addProperty("category", poi.category.name)
+                addProperty("address", poi.address ?: "")
+            }
+            Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude), properties)
         }
         source.setGeoJson(FeatureCollection.fromFeatures(features.toTypedArray()))
     }
