@@ -17,6 +17,24 @@ object ValhallaRoutePolicy {
             "no_ferry" -> put("use_ferry", 0.0)
             "ferry_fast" -> put("use_ferry", 1.0)
             "ferry_balanced" -> put("use_ferry", 0.5)
+            "no_toll_no_ferry" -> {
+                put("use_tolls", 0.0)
+                put("toll_booth_penalty", 3600.0)
+                put("use_ferry", 0.0)
+            }
+            "toll_fast_no_ferry" -> {
+                put("use_tolls", 1.0)
+                put("use_ferry", 0.0)
+            }
+            "toll_fast_ferry" -> {
+                put("use_tolls", 1.0)
+                put("use_ferry", 1.0)
+            }
+            "no_toll_ferry" -> {
+                put("use_tolls", 0.0)
+                put("toll_booth_penalty", 3600.0)
+                put("use_ferry", 1.0)
+            }
         }
     }
 
