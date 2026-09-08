@@ -1,6 +1,5 @@
 package com.haritalar.core.navigation
 
-import org.json.JSONArray
 import org.json.JSONObject
 
 /** Parses bounded Overpass JSON into safe navigation POI models. */
@@ -35,12 +34,17 @@ object OsmPoiParser {
                 longitude = coordinate.second,
                 address = address,
                 openingHours = tags.optString("opening_hours").trim().ifBlank { null },
-                imageUrl = tags.optString("image").trim().ifBlank { null },
-                streetImageUrl = null,
+                // Only expose an actual remote image URL from OSM. A filename or
+                // Wikimedia tag is deliberately not turned into a guessed URL.
+                imageUrl = remoteUrl(tags.optString("image").trim()),
+                streetImageUrl = remoteUrl(tags.optString("street_image_url").trim()),
             )
         }
         return results
     }
+
+    private fun remoteUrl(value: String): String? =
+        value.takeIf { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
 
     private fun coordinateOf(element: JSONObject): Pair<Double, Double>? {
         val lat = element.optDouble("lat", Double.NaN)
@@ -54,22 +58,22 @@ object OsmPoiParser {
     }
 
     private fun categoryOf(tags: JSONObject): NavigationPoiCategory? = when {
-        tags.optString("amenity") in setOf("restaurant") -> NavigationPoiCategory.RESTAURANT
-        tags.optString("amenity") in setOf("cafe") -> NavigationPoiCategory.CAFE
-        tags.optString("amenity") in setOf("pharmacy") -> NavigationPoiCategory.PHARMACY
-        tags.optString("amenity") in setOf("hospital") -> NavigationPoiCategory.HOSPITAL
-        tags.optString("amenity") in setOf("school") -> NavigationPoiCategory.SCHOOL
-        tags.optString("amenity") in setOf("parking") -> NavigationPoiCategory.PARKING
-        tags.optString("amenity") in setOf("fuel") -> NavigationPoiCategory.FUEL
-        tags.optString("amenity") in setOf("atm") -> NavigationPoiCategory.ATM
-        tags.optString("amenity") in setOf("charging_station") -> NavigationPoiCategory.CHARGING_STATION
+        tags.optString("amenity") in setOf("restaurant", "fast_food") -> NavigationPoiCategory.RESTAURANT
+        tags.optString("amenity") == "cafe" -> NavigationPoiCategory.CAFE
+        tags.optString("amenity") == "pharmacy" -> NavigationPoiCategory.PHARMACY
+        tags.optString("amenity") == "hospital" -> NavigationPoiCategory.HOSPITAL
+        tags.optString("amenity") == "school" -> NavigationPoiCategory.SCHOOL
+        tags.optString("amenity") == "parking" -> NavigationPoiCategory.PARKING
+        tags.optString("amenity") == "fuel" -> NavigationPoiCategory.FUEL
+        tags.optString("amenity") == "atm" -> NavigationPoiCategory.ATM
+        tags.optString("amenity") == "charging_station" -> NavigationPoiCategory.CHARGING_STATION
+        tags.optString("amenity") == "place_of_worship" -> NavigationPoiCategory.PLACE_OF_WORSHIP
+        tags.optString("public_transport") in setOf("platform", "station", "stop_position") || tags.has("public_transport") -> NavigationPoiCategory.TRANSIT
         tags.optString("shop") in setOf("supermarket", "convenience", "mall", "department_store") -> NavigationPoiCategory.MARKET
         tags.optString("leisure") == "park" -> NavigationPoiCategory.PARK
-        tags.optString("leisure") == "rest_area" -> NavigationPoiCategory.REST_AREA
+        tags.optString("amenity") == "rest_area" || tags.optString("highway") == "rest_area" -> NavigationPoiCategory.REST_AREA
         tags.optString("tourism") == "hotel" -> NavigationPoiCategory.HOTEL
         tags.optString("tourism") in setOf("attraction", "museum", "viewpoint") -> NavigationPoiCategory.TOURISM
-        tags.has("place_of_worship") -> NavigationPoiCategory.PLACE_OF_WORSHIP
-        tags.has("public_transport") -> NavigationPoiCategory.TRANSIT
         else -> null
     }
 }
