@@ -22,6 +22,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
+import java.util.WeakHashMap
 
 /**
  * Installs map-browse affordances without coupling them to the large MainActivity.
@@ -30,6 +31,7 @@ import org.maplibre.android.maps.MapView
  */
 class HaritalarApplication : Application() {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val initialGpsCenterRequested = WeakHashMap<MapView, Boolean>()
 
     override fun onCreate() {
         super.onCreate()
@@ -66,41 +68,47 @@ class HaritalarApplication : Application() {
             map.uiSettings.isRotateGesturesEnabled = true
             map.uiSettings.isTiltGesturesEnabled = true
             addRecenterButton(activity, root, map)
-            centerInitialViewOnGps(activity, map)
+            centerInitialViewOnGps(activity, mapView, map)
         }
     }
 
     /**
-     * MainActivity historically supplied Istanbul as its initial camera target.
-     * Prefer a real device location from Android's LocationManager when one is
-     * already available. This is independent of MapLibre's location engine,
-     * which is intentionally disabled by MainActivity and receives updates from
-     * the app's own location listener.
-     *
-     * We only replace the known Istanbul fallback, so a user-selected address or
-     * a manually browsed city is never overwritten.
+     * Center on the real device location once at startup, but only while the
+     * camera is still at the map's original position. There is deliberately no
+     * hard-coded city fallback: if the user pans, zooms, rotates, tilts or
+     * searches before a GPS fix arrives, that interaction wins and is never
+     * overwritten by this initial-location helper.
      */
-    private fun centerInitialViewOnGps(activity: Activity, map: MapLibreMap) {
+    private fun centerInitialViewOnGps(activity: Activity, mapView: MapView, map: MapLibreMap) {
+        if (initialGpsCenterRequested[mapView] == true) return
         if (activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
             activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
         ) return
 
-        val initialTarget = LatLng(41.0082, 28.9784)
+        initialGpsCenterRequested[mapView] = true
+        val initialCamera = map.cameraPosition
+        val initialTarget = initialCamera.target
+        val initialZoom = initialCamera.zoom
         val startedAt = System.currentTimeMillis()
         val timeoutMs = 12_000L
+
         val poll = object : Runnable {
             override fun run() {
-                val cameraTarget = map.cameraPosition.target ?: initialTarget
-                val stillOnIstanbulFallback = distanceMeters(cameraTarget, initialTarget) <= 2_500.0
-                if (!stillOnIstanbulFallback) return
+                val currentCamera = map.cameraPosition
+                val currentTarget = currentCamera.target
+                val movedFromInitial = initialTarget?.let { original ->
+                    currentTarget?.let { current -> distanceMeters(current, original) > 50.0 } ?: true
+                } ?: false
+                val zoomChanged = kotlin.math.abs(currentCamera.zoom - initialZoom) > 0.25
+                if (movedFromInitial || zoomChanged) return
 
                 val location = findLastDeviceLocation(activity)
                     ?: map.locationComponent.getLastKnownLocation()
                 if (location != null) {
                     map.locationComponent.setCameraMode(org.maplibre.android.location.modes.CameraMode.NONE_GPS)
-                    map.cameraPosition = CameraPosition.Builder(map.cameraPosition)
+                    map.cameraPosition = CameraPosition.Builder(currentCamera)
                         .target(LatLng(location.latitude, location.longitude))
-                        .zoom(maxOf(map.cameraPosition.zoom, 14.5))
+                        .zoom(maxOf(currentCamera.zoom, 14.5))
                         .build()
                     return
                 }
