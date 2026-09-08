@@ -75,7 +75,7 @@ class RouteTrafficIntelligenceTest {
 
     @Test
     fun `closed alternative loses to a clear alternative even without speed data`() {
-        val closed = TrafficTrafficIntelligence.RouteInput(
+        val closed = TrafficRouteIntelligence.RouteInput(
             routeId = "closed",
             baseDurationSeconds = 600,
             trafficSegments = listOf(
@@ -85,13 +85,13 @@ class RouteTrafficIntelligenceTest {
                 ),
             ),
         )
-        val clear = TrafficTrafficIntelligence.RouteInput(
+        val clear = TrafficRouteIntelligence.RouteInput(
             routeId = "clear",
             baseDurationSeconds = 900,
             trafficSegments = listOf(segment(60.0, 60.0)),
         )
 
-        val ranked = TrafficTrafficIntelligence.rank(listOf(closed, clear))
+        val ranked = TrafficRouteIntelligence.rank(listOf(closed, clear))
 
         assertEquals(listOf("clear", "closed"), ranked.map { it.routeId })
         assertEquals(3_600L, ranked.last().adjustedDurationSeconds)
