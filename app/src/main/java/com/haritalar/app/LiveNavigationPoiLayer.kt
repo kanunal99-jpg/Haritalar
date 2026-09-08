@@ -5,6 +5,8 @@ import android.os.Looper
 import android.util.Log
 import com.google.gson.JsonObject
 import com.haritalar.core.navigation.NavigationPoi
+import com.haritalar.core.navigation.NavigationPoiCategory
+import com.haritalar.core.navigation.NavigationPoiDetails
 import com.haritalar.core.navigation.OsmPoiParser
 import com.haritalar.core.navigation.OsmPoiQuery
 import org.maplibre.android.annotations.Marker
@@ -34,7 +36,9 @@ import java.net.URLEncoder
 import java.util.concurrent.Executors
 
 /** Bounded, throttled live OSM POI overlay. No paid provider or API key is required. */
-class LiveNavigationPoiLayer {
+class LiveNavigationPoiLayer(
+    private val onPoiSelected: (NavigationPoiDetails) -> Unit = {},
+) {
     companion object {
         const val SOURCE_ID = "haritalar-live-poi-source"
         const val CIRCLE_LAYER_ID = "haritalar-live-poi-circles"
@@ -44,7 +48,6 @@ class LiveNavigationPoiLayer {
         private const val DEBOUNCE_MS = 900L
         private const val MIN_REFRESH_MS = 5_000L
         private const val MAX_RESULTS = 300
-        private const val HIT_RADIUS_PX = 18f
         private const val TAG = "LiveNavigationPoi"
     }
 
@@ -59,11 +62,7 @@ class LiveNavigationPoiLayer {
     private val mapClickListener = MapLibreMap.OnMapClickListener { point ->
         val currentMap = map ?: return@OnMapClickListener false
         val screenPoint = currentMap.projection.toScreenLocation(point)
-        val features = currentMap.queryRenderedFeatures(
-            screenPoint,
-            CIRCLE_LAYER_ID,
-            LABEL_LAYER_ID,
-        )
+        val features = currentMap.queryRenderedFeatures(screenPoint, CIRCLE_LAYER_ID, LABEL_LAYER_ID)
         val feature = features.firstOrNull() ?: return@OnMapClickListener false
         selectPoi(feature)
         true
@@ -106,39 +105,55 @@ class LiveNavigationPoiLayer {
 
     private fun selectPoi(feature: Feature) {
         val properties = feature.properties() ?: return
+        val point = feature.geometry() as? Point ?: return
         val name = properties.get("name")?.asString?.takeIf { it.isNotBlank() } ?: "Harita noktası"
         val category = properties.get("category")?.asString
-            ?.lowercase()?.replace('_', ' ')?.replaceFirstChar { it.titlecase() } ?: "Diğer"
+            ?.let { runCatching { NavigationPoiCategory.valueOf(it) }.getOrDefault(NavigationPoiCategory.OTHER) }
+            ?: NavigationPoiCategory.OTHER
         val address = properties.get("address")?.asString?.takeIf { it.isNotBlank() }
         val openingHours = properties.get("opening_hours")?.asString?.takeIf { it.isNotBlank() }
+        val id = properties.get("id")?.asString?.takeIf { it.isNotBlank() }
+            ?: "osm-${point.longitude()}-${point.latitude()}"
+        val details = NavigationPoiDetails(
+            NavigationPoi(
+                id = id,
+                category = category,
+                name = name,
+                latitude = point.latitude(),
+                longitude = point.longitude(),
+                address = address,
+                openingHours = openingHours,
+                imageUrl = properties.get("image_url")?.asString?.takeIf { it.isNotBlank() },
+                streetImageUrl = properties.get("street_image_url")?.asString?.takeIf { it.isNotBlank() },
+            ),
+        )
         val message = buildString {
-            append(name).append(" • ").append(category)
-            if (address != null) append(" • ").append(address)
-            if (openingHours != null) append(" • ").append(openingHours)
+            append(details.title).append(" • ").append(details.categoryLabel)
+            details.addressLabel?.let { append(" • ").append(it) }
+            details.openingHoursLabel?.let { append(" • ").append(it) }
         }
         val style = map?.style
         val selectedSource = style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource
         selectedSource?.setGeoJson(FeatureCollection.fromFeatures(arrayOf(feature)))
 
-        val point = feature.geometry() as? Point
         val currentMap = map
-        if (point != null && currentMap != null) {
+        if (currentMap != null) {
             selectedMarker?.remove()
             val snippet = buildString {
-                append(category)
-                if (address != null) append("\n$address")
-                if (openingHours != null) append("\nSaatler: $openingHours")
-                append("\n\nBuraya git")
+                append(details.categoryLabel)
+                details.addressLabel?.let { append("\n$it") }
+                details.openingHoursLabel?.let { append("\nSaatler: $it") }
             }
             selectedMarker = currentMap.addMarker(
                 MarkerOptions()
-                    .position(org.maplibre.android.geometry.LatLng(point.latitude(), point.longitude()))
-                    .title(name)
+                    .position(org.maplibre.android.geometry.LatLng(details.poi.latitude, details.poi.longitude))
+                    .title(details.title)
                     .snippet(snippet),
             )
             selectedMarker?.let(currentMap::selectMarker)
         }
         Log.i(TAG, "POI seçildi: $message")
+        mainHandler.post { onPoiSelected(details) }
     }
 
     fun scheduleRefresh(bounds: LatLngBounds?) {
@@ -179,8 +194,8 @@ class LiveNavigationPoiLayer {
                 val body = connection.inputStream.bufferedReader().use { it.readText() }
                 val pois = OsmPoiParser.parse(body, MAX_RESULTS)
                 mainHandler.post { updateSource(pois) }
-            } catch (_: Exception) {
-                // Keep the last successful POI set on transient provider/network errors.
+            } catch (e: Exception) {
+                Log.w(TAG, "POI yenileme başarısız; son başarılı set korunuyor", e)
             }
         }
     }
@@ -190,10 +205,13 @@ class LiveNavigationPoiLayer {
         val source = style.getSource(SOURCE_ID) as? GeoJsonSource ?: return
         val features = pois.map { poi ->
             val properties = JsonObject().apply {
+                addProperty("id", poi.id)
                 addProperty("name", poi.name)
                 addProperty("category", poi.category.name)
                 addProperty("address", poi.address ?: "")
                 addProperty("opening_hours", poi.openingHours ?: "")
+                addProperty("image_url", poi.imageUrl ?: "")
+                addProperty("street_image_url", poi.streetImageUrl ?: "")
             }
             Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude), properties)
         }
