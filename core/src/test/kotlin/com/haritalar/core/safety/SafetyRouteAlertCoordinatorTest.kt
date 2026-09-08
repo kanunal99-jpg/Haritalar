@@ -51,11 +51,7 @@ class SafetyRouteAlertCoordinatorTest {
 
     @Test fun rejectsInvalidOfflinePointBeforeRouteTracking() {
         val coordinator = SafetyRouteAlertCoordinator()
-        val invalidOffline = point.copy(
-            id = "offline-invalid",
-            source = DataSource.OFFLINE,
-            latitude = 95.0,
-        )
+        val invalidOffline = point.copy(id = "offline-invalid", source = DataSource.OFFLINE, latitude = 95.0)
         assertTrue(coordinator.trackPoints(route, cumulative, listOf(invalidOffline)).isEmpty())
     }
 
@@ -68,5 +64,34 @@ class SafetyRouteAlertCoordinatorTest {
             confidence = Confidence.LOW,
         )
         assertTrue(coordinator.trackPoints(route, cumulative, listOf(userReportedOffline)).isEmpty())
+    }
+
+    @Test fun prefersLiveRecordWhenCacheAndLiveOverlap() {
+        val coordinator = SafetyRouteAlertCoordinator()
+        val cache = point.copy(id = "cache-camera", source = DataSource.CACHE, confidence = Confidence.HIGH)
+        val deduplicated = coordinator.deduplicate(listOf(cache, point))
+        assertEquals(1, deduplicated.size)
+        assertEquals(DataSource.LIVE, deduplicated.single().source)
+    }
+
+    @Test fun prefersHighConfidenceWhenSourcesAreEqual() {
+        val coordinator = SafetyRouteAlertCoordinator()
+        val medium = point.copy(id = "medium", confidence = Confidence.MEDIUM)
+        val high = point.copy(id = "high", confidence = Confidence.HIGH)
+        val deduplicated = coordinator.deduplicate(listOf(medium, high))
+        assertEquals(1, deduplicated.size)
+        assertEquals("high", deduplicated.single().id)
+    }
+
+    @Test fun keepsDifferentSafetyTypesAtSameLocation() {
+        val coordinator = SafetyRouteAlertCoordinator()
+        val trafficLight = point.copy(id = "traffic", type = SafetyPointType.TRAFFIC_LIGHT_CAMERA)
+        assertEquals(2, coordinator.deduplicate(listOf(point, trafficLight)).size)
+    }
+
+    @Test fun doesNotMergePointsBeyondTolerance() {
+        val coordinator = SafetyRouteAlertCoordinator(duplicatePointToleranceMeters = 50.0)
+        val far = point.copy(id = "far", longitude = 29.00600)
+        assertEquals(2, coordinator.deduplicate(listOf(point, far)).size)
     }
 }
