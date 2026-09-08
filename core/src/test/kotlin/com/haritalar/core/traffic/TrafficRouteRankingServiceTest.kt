@@ -1,6 +1,9 @@
 package com.haritalar.core.traffic
 
 import com.haritalar.core.navigation.GeoCoordinate
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,13 +37,13 @@ class TrafficRouteRankingServiceTest {
             })),
         )
 
-        val result = kotlinx.coroutines.runBlocking { service.rank(emptyList(), nowEpochMs = 1_000L) }
+        val result = runSuspend { service.rank(emptyList(), nowEpochMs = 1_000L) }
         assertTrue(result.isEmpty())
         assertEquals(0, calls)
     }
 
     @Test
-    fun providerFailureKeepsBaseEtas() = kotlinx.coroutines.runBlocking {
+    fun providerFailureKeepsBaseEtas() {
         val service = TrafficRouteRankingService(
             TrafficProviderChain(listOf(object : TrafficProvider {
                 override val id = "failing"
@@ -51,13 +54,13 @@ class TrafficRouteRankingServiceTest {
             })),
         )
 
-        val result = service.rank(listOf(routeA, routeB), nowEpochMs = 1_000L)
+        val result = runSuspend { service.rank(listOf(routeA, routeB), nowEpochMs = 1_000L) }
         assertEquals(listOf(2_400L, 2_700L), result.map { it.adjustedDurationSeconds })
         assertTrue(result.none { it.trafficApplied })
     }
 
     @Test
-    fun verifiedSnapshotCanChangeRouteOrdering() = kotlinx.coroutines.runBlocking {
+    fun verifiedSnapshotCanChangeRouteOrdering() {
         val service = TrafficRouteRankingService(
             TrafficProviderChain(listOf(object : TrafficProvider {
                 override val id = "test-live"
@@ -82,9 +85,20 @@ class TrafficRouteRankingServiceTest {
             })),
         )
 
-        val result = service.rank(listOf(routeA, routeB), nowEpochMs = 1_000L)
+        val result = runSuspend { service.rank(listOf(routeA, routeB), nowEpochMs = 1_000L) }
         assertEquals("b", result.first().routeId)
         assertTrue(result.any { it.routeId == "a" && it.trafficApplied })
         assertFalse(result.any { it.adjustedDurationSeconds < it.baseDurationSeconds })
+    }
+
+    private fun <T> runSuspend(block: suspend () -> T): T {
+        var value: Result<T>? = null
+        block.startCoroutine(object : Continuation<T> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(result: Result<T>) {
+                value = result
+            }
+        })
+        return value!!.getOrThrow()
     }
 }
