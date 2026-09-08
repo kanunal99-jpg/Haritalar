@@ -1,6 +1,5 @@
 package com.haritalar.app
 
-import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -61,13 +60,9 @@ class LiveNavigationPoiLayer {
         val currentMap = map ?: return@OnMapClickListener false
         val screenPoint = currentMap.projection.toScreenLocation(point)
         val features = currentMap.queryRenderedFeatures(
-            RectF(
-                screenPoint.x - HIT_RADIUS_PX,
-                screenPoint.y - HIT_RADIUS_PX,
-                screenPoint.x + HIT_RADIUS_PX,
-                screenPoint.y + HIT_RADIUS_PX,
-            ),
-            arrayOf(CIRCLE_LAYER_ID, LABEL_LAYER_ID),
+            screenPoint,
+            CIRCLE_LAYER_ID,
+            LABEL_LAYER_ID,
         )
         val feature = features.firstOrNull() ?: return@OnMapClickListener false
         selectPoi(feature)
@@ -85,31 +80,23 @@ class LiveNavigationPoiLayer {
         if (style.getLayer(CIRCLE_LAYER_ID) == null) {
             style.addLayer(
                 CircleLayer(CIRCLE_LAYER_ID, SOURCE_ID).withProperties(
-                    circleRadius(6f),
-                    circleColor("#1976D2"),
-                    circleOpacity(0.9f),
-                    circleStrokeColor("#FFFFFF"),
-                    circleStrokeWidth(2f),
+                    circleRadius(6f), circleColor("#1976D2"), circleOpacity(0.9f),
+                    circleStrokeColor("#FFFFFF"), circleStrokeWidth(2f),
                 ),
             )
         }
         if (style.getLayer(SELECTED_LAYER_ID) == null) {
             style.addLayer(
                 CircleLayer(SELECTED_LAYER_ID, SELECTED_SOURCE_ID).withProperties(
-                    circleRadius(13f),
-                    circleColor("#FF9800"),
-                    circleOpacity(0.28f),
-                    circleStrokeColor("#FF9800"),
-                    circleStrokeWidth(3f),
+                    circleRadius(13f), circleColor("#FF9800"), circleOpacity(0.28f),
+                    circleStrokeColor("#FF9800"), circleStrokeWidth(3f),
                 ),
             )
         }
         if (style.getLayer(LABEL_LAYER_ID) == null) {
             SymbolLayer(LABEL_LAYER_ID, SOURCE_ID).withProperties(
                 textField(org.maplibre.android.style.expressions.Expression.get("name")),
-                textSize(11f),
-                textAllowOverlap(false),
-                textIgnorePlacement(false),
+                textSize(11f), textAllowOverlap(false), textIgnorePlacement(false),
                 iconAllowOverlap(false),
             ).also(style::addLayer)
         }
@@ -121,10 +108,7 @@ class LiveNavigationPoiLayer {
         val properties = feature.properties() ?: return
         val name = properties.get("name")?.asString?.takeIf { it.isNotBlank() } ?: "Harita noktası"
         val category = properties.get("category")?.asString
-            ?.lowercase()
-            ?.replace('_', ' ')
-            ?.replaceFirstChar { it.titlecase() }
-            ?: "Diğer"
+            ?.lowercase()?.replace('_', ' ')?.replaceFirstChar { it.titlecase() } ?: "Diğer"
         val address = properties.get("address")?.asString?.takeIf { it.isNotBlank() }
         val openingHours = properties.get("opening_hours")?.asString?.takeIf { it.isNotBlank() }
         val message = buildString {
@@ -134,9 +118,7 @@ class LiveNavigationPoiLayer {
         }
         val style = map?.style
         val selectedSource = style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource
-        if (selectedSource != null) {
-            selectedSource.setGeoJson(FeatureCollection.fromFeatures(arrayOf(feature)))
-        }
+        selectedSource?.setGeoJson(FeatureCollection.fromFeatures(arrayOf(feature)))
 
         val point = feature.geometry() as? Point
         val currentMap = map
@@ -213,10 +195,7 @@ class LiveNavigationPoiLayer {
                 addProperty("address", poi.address ?: "")
                 addProperty("opening_hours", poi.openingHours ?: "")
             }
-            Feature.fromGeometry(
-                Point.fromLngLat(poi.longitude, poi.latitude),
-                properties,
-            )
+            Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude), properties)
         }
         source.setGeoJson(FeatureCollection.fromFeatures(features.toTypedArray()))
     }
