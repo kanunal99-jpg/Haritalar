@@ -31,6 +31,30 @@ class TrafficProviderChainTest {
     }
 
     @Test
+    fun usesFreshFallbackWhenLiveAndCacheAreUnavailable() {
+        val fallback = TrafficSnapshot("fallback", emptyList(), 1, 10_000, TrafficConfidence.MEDIUM)
+        val chain = TrafficProviderChain(
+            providers = emptyList(),
+            fallbackProvider = object : TrafficFallbackProvider {
+                override suspend fun fetchFallback(bounds: TrafficBounds, route: TrafficRoute?) = fallback
+            },
+        )
+        assertEquals("fallback", runSuspend { chain.fetch(coordinate, bounds, null, 100) }?.providerId)
+    }
+
+    @Test
+    fun rejectsExpiredFallbackData() {
+        val expired = TrafficSnapshot("fallback", emptyList(), 1, 50, TrafficConfidence.MEDIUM)
+        val chain = TrafficProviderChain(
+            providers = emptyList(),
+            fallbackProvider = object : TrafficFallbackProvider {
+                override suspend fun fetchFallback(bounds: TrafficBounds, route: TrafficRoute?) = expired
+            },
+        )
+        assertNull(runSuspend { chain.fetch(coordinate, bounds, null, 100) })
+    }
+
+    @Test
     fun ignoresFailingFallbackProvider() {
         val chain = TrafficProviderChain(
             providers = emptyList(),
