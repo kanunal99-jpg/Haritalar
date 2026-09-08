@@ -36,7 +36,11 @@ class TrafficProviderChain(
         }
 
         return fallbackProvider
-            ?.let { provider -> runCatching { provider.fetchFallback(bounds, route) }.getOrNull() }
+            ?.let { provider ->
+                runCatching { provider.fetchFallback(bounds, route) }
+                    .getOrNull()
+                    ?.takeIf { it.isUsable(nowEpochMs) }
+            }
     }
 }
 
