@@ -227,10 +227,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
         mapView.getMapAsync { map ->
             map.setStyle(Style.Builder().fromUri(MAP_STYLE)) { style ->
-                map.cameraPosition = CameraPosition.Builder()
-                    .target(LatLng(41.0082, 28.9784))
-                    .zoom(11.5)
-                    .build()
                 ThreeDNavigationLayer.install(style)
                 livePoiLayer = LiveNavigationPoiLayer { details -> showPoiDetails(details) }
                     .also { it.install(map, style) }
