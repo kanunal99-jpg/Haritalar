@@ -66,7 +66,7 @@ Hedef zincir:
 - Provider geometry `TrafficSegment.geometry` içine taşınır.
 - Snapshot TTL: 60 saniye.
 - Geçerli segment yoksa LOW confidence/boş segment döner; trafik uydurulmaz.
-- HTTP bağlantısı `try/finally` ile kapatılır; Kotlin `Closeable.use` ile `HttpURLConnection` üzerinde hatalı kullanım yapılmaz.
+- HTTP bağlantısı `try/finally` ile kapatılır.
 
 Test:
 `core/src/test/kotlin/com/haritalar/core/traffic/TomTomTrafficProviderTest.kt`
@@ -100,6 +100,8 @@ Bu katman henüz MainActivity route card rendering'ine bağlanmış değildir.
 Test:
 `core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteRankingServiceTest.kt`
 
+Son CI hatasında test fixture'ındaki iki rota aynı başlangıç geometrisini paylaştığı için traffic segmentinin iki rotaya da eşleşmesi mümkün oluyordu. Bu, ürün kodu hatası değil, testin geometry-isolation problemiydi. `5ef35b75726c2a8c9cd3b7a0be8bce7bf618d2b8` commitinde route B geometrisi route A'dan ayrıştırıldı.
+
 ## Routing / 7 rota
 
 Valhalla gerçek routing motorudur. MainActivity şu hedef seçenekleri gerçek Valhalla istekleriyle üretir:
@@ -119,31 +121,26 @@ Mevcut MainActivity'de GPS, MapLibre, Nominatim arama, Valhalla routing, TTS, na
 
 ## Güncel doğrulanmış durum — 2026-09-08
 
-`main` HEAD:
-`15315adc98b033c52bc2a63c2b492e95c419a48a`
+`main` son doğrulanmış HEAD:
+`5ef35b75726c2a8c9cd3b7a0be8bce7bf618d2b8`
 
 HEAD commit:
-`fix(test): remove coroutine dependency from traffic ranking tests`
+`test(traffic): isolate route geometries in ranking test`
 
-Bu turdaki gerçek değişiklik zinciri:
-- `6647c57b7dd36165bfe79c525fe042ffe4bc3813` — `feat(traffic): add route ranking orchestration service`
-- `aef14855c0f29d3936fe911a70d9e90b1d1c4e9e` — `test(traffic): cover route ranking orchestration`
-- `15315adc98b033c52bc2a63c2b492e95c419a48a` — `fix(test): remove coroutine dependency from traffic ranking tests`
+Bu turdaki gerçek değişiklik:
+- `5ef35b75726c2a8c9cd3b7a0be8bce7bf618d2b8` — ranking orchestration testinde route B geometrisini route A'dan ayırdı; testin gerçek geometry matching davranışını izole etti.
 
 Önceki HEAD:
-`daa402e0b9bdeb6c85c645eea484a14e3e35d99b`
-
-## Bu turda çözülen / eklenen
-
-Traffic ranking'in provider orchestration katmanı core'a eklendi. Böylece route seti için provider chain'den tek snapshot alınması ve bunun tüm gerçek route geometry'lerine uygulanması tek bir tekrar kullanılabilir serviste toplandı. Testlerde harici coroutine runtime bağımlılığı kullanılmadı; Kotlin coroutine primitive'i ile suspend fonksiyonlar doğrudan test ediliyor.
+`5107d4a2d2c2948434c61c37628a70683a6b599d`
 
 ## CI / APK — doğrulanmış gerçek durum
 
 Workflow: `Android APK` (`.github/workflows/android.yml`).
 
-Güncel commit `15315adc...` için run `284` oluşturuldu ve son kontrol anında `queued` durumundaydı; conclusion henüz yoktur. Bu nedenle bu commit için CI başarılı denmemiştir.
-
-Önceki run `283` (`aef14855...`) son kontrolde `in_progress` idi. Önceki run'ların sonuçları güncel commitin başarısını kanıtlamaz.
+- `run 285` / HEAD `5107d4a2...` **failure** oldu.
+- Gerçek hata: `TrafficRouteRankingServiceTest > verifiedSnapshotCanChangeRouteOrdering` başarısızdı; 162 testten 1'i failed. APK build adımı test failure nedeniyle skipped oldu.
+- `run 286` / HEAD `5ef35b75726c2a8c9cd3b7a0be8bce7bf618d2b8` push sonrası **queued** durumundaydı; bu nedenle yeni commit için CI henüz başarılı kabul edilmez.
+- Test report artifact'ı run 285'te üretildi; APK artifact'ı üretilmedi çünkü build adımı skipped oldu.
 
 Son kesin doğrulanmış başarılı APK:
 - run `271`
@@ -152,7 +149,7 @@ Son kesin doğrulanmış başarılı APK:
 - artifact `haritalar-debug-apk-271`
 - test report `haritalar-unit-test-reports-271`
 
-Yeni traffic ranking service kodunu içeren APK şu anda `hazır` kabul edilmez.
+Yeni traffic ranking değişikliklerini içeren APK şu anda `hazır` kabul edilmez.
 
 ## Başarılı / mevcut
 
@@ -177,7 +174,7 @@ Yeni kodun CI sonucu kesinleşmeden yeni sürümün build edilmiş/başarılı o
 
 ## Açık işler / sıradaki gerçek hedef
 
-1. Güncel run `284` sonucunu doğrula; gerekirse test hatasını gerçek logdan düzelt.
+1. `run 286` sonucunu doğrula; test yeşil değilse yalnız gerçek loga göre düzelt.
 2. Başarılıysa yeni APK artifact'ını doğrula.
 3. TomTom credential/configuration'ı secret güvenliğiyle uygulamaya bağla; kota/ücret/kullanım şartlarını doğrula.
 4. Gerçek TomTom endpoint erişimini gerçek credential ile fixture'dan ayrı doğrula.
@@ -199,10 +196,6 @@ Yeni kodun CI sonucu kesinleşmeden yeni sürümün build edilmiş/başarılı o
 - başarısız CI'ı başarılı göstermek
 - build edilmemiş APK'yı hazır göstermek
 
-## Referans kaynaklar
-
-EGM EDS, İçişleri, KGM, İBB, TomTom, HERE, OpenStreetMap ve Valhalla kaynakları yalnızca gerçek makine-okunabilir API/veri erişimi doğrulanırsa entegrasyon kaynağı kabul edilir. Web sayfasının varlığı API varlığını kanıtlamaz.
-
 ## Sonraki hedef
 
-**Önce run 284 CI sonucunu doğrula. Temiz CI sonrası gerçek TomTom credential/configuration ve kontrollü refresh/cache katmanını kur; ardından `TrafficRouteRankingService`i MainActivity'nin 7 gerçek rota kartına bağla. Trafik verisi yoksa UI temel Valhalla ETA'sına aynen dönmeli; hiçbir yerde sentetik trafik farkı gösterilmemelidir.**
+**Önce run 286 CI sonucunu doğrula. Temiz CI sonrası gerçek TomTom credential/configuration ve kontrollü refresh/cache katmanını kur; ardından `TrafficRouteRankingService`i MainActivity'nin 7 gerçek rota kartına bağla. Trafik verisi yoksa UI temel Valhalla ETA'sına aynen dönmeli; hiçbir yerde sentetik trafik farkı gösterilmemelidir.**
