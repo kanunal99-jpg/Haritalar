@@ -17,20 +17,24 @@ import kotlin.math.sqrt
 object TrafficRouteMatcher {
     const val DEFAULT_TOLERANCE_METERS = 80.0
     const val DEFAULT_DIRECTION_TOLERANCE_DEGREES = 55.0
+    const val DEFAULT_MIN_OVERLAP_RATIO = 0.35
 
     fun match(
         route: List<GeoCoordinate>,
         segments: List<TrafficSegment>,
         toleranceMeters: Double = DEFAULT_TOLERANCE_METERS,
         directionToleranceDegrees: Double = DEFAULT_DIRECTION_TOLERANCE_DEGREES,
+        minOverlapRatio: Double = DEFAULT_MIN_OVERLAP_RATIO,
     ): List<TrafficRouteSegment> {
         require(toleranceMeters >= 0.0)
         require(directionToleranceDegrees in 0.0..180.0)
+        require(minOverlapRatio in 0.0..1.0)
         if (route.size < 2) return emptyList()
 
         return segments.mapNotNull { segment ->
             if (segment.confidence == TrafficConfidence.LOW || segment.geometry.size < 2) return@mapNotNull null
-            if (!geometryTouchesRoute(route, segment.geometry, toleranceMeters)) return@mapNotNull null
+            val overlapRatio = geometryOverlapRatio(route, segment.geometry, toleranceMeters)
+            if (overlapRatio < minOverlapRatio) return@mapNotNull null
 
             val trafficBearing = segment.directionBearingDegrees
             if (trafficBearing != null) {
@@ -48,12 +52,15 @@ object TrafficRouteMatcher {
         }
     }
 
-    private fun geometryTouchesRoute(
+    private fun geometryOverlapRatio(
         route: List<GeoCoordinate>,
         geometry: List<GeoCoordinate>,
         toleranceMeters: Double,
-    ): Boolean = geometry.any { observationPoint ->
-        route.zipWithNext().any { (a, b) -> pointToSegmentDistanceMeters(observationPoint, a, b) <= toleranceMeters }
+    ): Double {
+        val matched = geometry.count { point ->
+            route.zipWithNext().any { (a, b) -> pointToSegmentDistanceMeters(point, a, b) <= toleranceMeters }
+        }
+        return matched.toDouble() / geometry.size.toDouble()
     }
 
     private fun nearestRouteBearing(
@@ -82,8 +89,6 @@ object TrafficRouteMatcher {
         start: GeoCoordinate,
         end: GeoCoordinate,
     ): Double {
-        // Local equirectangular projection is sufficiently accurate for the
-        // short road segments used by traffic providers.
         val latScale = 111_320.0
         val lonScale = 111_320.0 * cos(Math.toRadians(point.latitude))
         val px = (point.longitude - start.longitude) * lonScale
