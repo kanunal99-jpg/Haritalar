@@ -5,6 +5,8 @@ import android.app.AlertDialog
 import android.app.Application
 import android.location.Location
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -15,14 +17,37 @@ import android.widget.FrameLayout
 object SafetyReportUiBridge {
     private var activity: Activity? = null
     private var button: Button? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val visibilityPoll = object : Runnable {
+        override fun run() {
+            activity?.let { updateVisibility(it) }
+            if (activity != null) handler.postDelayed(this, 1000L)
+        }
+    }
 
     fun install(app: Application) {
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(a: Activity) {
-                if (a is MainActivity) { activity = a; ensureButton(a) }
+                if (a is MainActivity) {
+                    activity = a
+                    ensureButton(a)
+                    handler.removeCallbacks(visibilityPoll)
+                    handler.post(visibilityPoll)
+                }
             }
-            override fun onActivityPaused(a: Activity) { if (activity === a) activity = null }
-            override fun onActivityDestroyed(a: Activity) { if (activity === a) { activity = null; button = null } }
+            override fun onActivityPaused(a: Activity) {
+                if (activity === a) {
+                    activity = null
+                    handler.removeCallbacks(visibilityPoll)
+                }
+            }
+            override fun onActivityDestroyed(a: Activity) {
+                if (activity === a) {
+                    activity = null
+                    button = null
+                    handler.removeCallbacks(visibilityPoll)
+                }
+            }
             override fun onActivityCreated(a: Activity, b: Bundle?) = Unit
             override fun onActivityStarted(a: Activity) = Unit
             override fun onActivityStopped(a: Activity) = Unit
@@ -45,6 +70,10 @@ object SafetyReportUiBridge {
                 bottomMargin = 150
             })
         }
+        updateVisibility(a)
+    }
+
+    private fun updateVisibility(a: Activity) {
         button?.visibility = if ((field(a, "navigationActive") as? Boolean) == true) View.VISIBLE else View.GONE
     }
 
