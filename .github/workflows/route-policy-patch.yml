@@ -1,0 +1,51 @@
+name: Apply route policy integration patch
+
+on:
+  push:
+    paths:
+      - .github/workflows/route-policy-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch MainActivity route variants
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/haritalar/app/MainActivity.kt')
+          s = p.read_text()
+          s = s.replace('import com.haritalar.core.navigation.NavigationProgressEngine\n', 'import com.haritalar.core.navigation.NavigationProgressEngine\nimport com.haritalar.core.navigation.ValhallaRoutePolicy\n')
+          s = s.replace('        val tollName: String?,\n        val maneuvers:', '        val tollName: String?,\n        val ferryUsed: Boolean,\n        val maneuvers:')
+          s = s.replace('''        val specs = listOf(\n            Triple("En hızlı", "Hızlı rota • ücretli yollar kullanılabilir", "auto"),\n            Triple("En kısa", "Mesafeyi azaltır", "auto_shorter"),\n            Triple("Ücretsiz öncelikli", "Ücretli yollardan kaçınmayı dener", "no_toll"),\n            Triple("Ücretli hızlı", "Ücretli yolları tercih eder", "toll_fast"),\n        )''', '''        val specs = listOf(\n            Triple("En hızlı", "Hızlı rota • ücretli/feribot geçişleri kullanılabilir", "auto"),\n            Triple("En kısa", "Mesafeyi azaltır", "auto_shorter"),\n            Triple("Ücretsiz öncelikli", "Ücretli yollardan kaçınmayı dener", "no_toll"),\n            Triple("Ücretli hızlı", "Ücretli yolları tercih eder", "toll_fast"),\n            Triple("Feribot hızlı", "Feribotu gerektiğinde/uygun olduğunda kullanır", "ferry_fast"),\n            Triple("Feribotsuz", "Feribotları kullanmaz", "no_ferry"),\n            Triple("Ücretsiz + feribotsuz", "Ücretli yol ve feribottan kaçınmayı dener", "no_toll_no_ferry"),\n        )''')
+          s = s.replace('''        val autoOptions = JSONObject()\n        when (mode) {\n            "no_toll" -> autoOptions.put("use_tolls", 0.0).put("toll_booth_penalty", 3600.0)\n            "toll_fast" -> autoOptions.put("use_tolls", 1.0)\n        }''', '''        val autoOptions = ValhallaRoutePolicy.autoCostingOptions(mode)''')
+          s = s.replace('''            setRequestProperty("Accept", "application/json")\n        }''', '''            setRequestProperty("Accept", "application/json")\n            setRequestProperty("X-Client-Id", "Haritalar-Android-open-source")\n        }''', 1)
+          s = s.replace('''        var toll = false\n        for (legIndex''', '''        var toll = false\n        var ferryUsed = false\n        for (legIndex''')
+          s = s.replace('''                toll = toll || maneuver.optBoolean("toll", false)\n                val localIndex''', '''                toll = toll || maneuver.optBoolean("toll", false)\n                ferryUsed = ferryUsed || ValhallaRoutePolicy.isFerryManeuver(maneuver)\n                val localIndex''')
+          s = s.replace('''            tollName = bridgeName,\n            maneuvers =''', '''            tollName = bridgeName,\n            ferryUsed = ferryUsed,\n            maneuvers =''')
+          s = s.replace('''            val tollText = when {''', '''            val ferryText = if (option.ferryUsed) "Feribot • ücret doğrulanmadı" else "Feribot yok"\n            val tollText = when {''')
+          s = s.replace('''            card.addView(TextView(this).apply { text = tollText; textSize = 12f })''', '''            card.addView(TextView(this).apply { text = tollText; textSize = 12f })\n            card.addView(TextView(this).apply { text = ferryText; textSize = 12f })''')
+          s = s.replace('''            routePanel.addView(TextView(this).apply { text = option.subtitle.ifBlank { "Seçilen rota haritada gösteriliyor." }; textSize = 12f; setPadding(4, 0, 4, 12) })''', '''            routePanel.addView(TextView(this).apply { text = option.subtitle.ifBlank { "Seçilen rota haritada gösteriliyor." }; textSize = 12f; setPadding(4, 0, 4, 6) })\n            routePanel.addView(TextView(this).apply { text = if (option.ferryUsed) "Feribot kullanımı tespit edildi • bilet ücreti doğrulanmadı" else "Feribot kullanımı tespit edilmedi"; textSize = 12f; setPadding(4, 0, 4, 12) })''')
+          s = s.replace('''        options.sortedWith(compareBy<RouteOption> { it.durationSeconds }.thenBy { it.distanceKm }).forEachIndexed { index, option ->''', '''        options.distinctBy { routeSignature(it) }.sortedWith(compareBy<RouteOption> { it.durationSeconds }.thenBy { it.distanceKm }).forEachIndexed { index, option ->''')
+          marker = '''    private fun renderRouteOptions(options: List<RouteOption>) {'''
+          helper = '''    private fun routeSignature(option: RouteOption): String {\n        val start = option.points.firstOrNull()?.let { "%.5f,%.5f".format(it.latitude, it.longitude) } ?: ""\n        val end = option.points.lastOrNull()?.let { "%.5f,%.5f".format(it.latitude, it.longitude) } ?: ""\n        return "$start|$end|${option.points.size}|${"%.1f".format(option.totalMeters)}|${option.ferryUsed}"\n    }\n\n'''
+          if helper not in s:
+              s = s.replace(marker, helper + marker)
+          p.write_text(s)
+          PY
+          git diff --check
+          git diff -- app/src/main/java/com/haritalar/app/MainActivity.kt
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/haritalar/app/MainActivity.kt
+          git diff --cached --quiet && { echo 'No changes'; exit 0; }
+          git commit -m "feat(route): integrate ferry-aware route variants"
+          git push
