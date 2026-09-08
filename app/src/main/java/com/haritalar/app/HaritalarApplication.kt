@@ -1,9 +1,13 @@
 package com.haritalar.app
 
+import android.Manifest
 import android.app.Activity
 import android.app.Application
+import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -22,6 +26,8 @@ import org.maplibre.android.maps.MapView
  * independently of programmatic camera movement.
  */
 class HaritalarApplication : Application() {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
@@ -57,7 +63,58 @@ class HaritalarApplication : Application() {
             map.uiSettings.isRotateGesturesEnabled = true
             map.uiSettings.isTiltGesturesEnabled = true
             addRecenterButton(activity, root, map)
+            centerInitialViewOnGps(activity, map)
         }
+    }
+
+    /**
+     * MainActivity historically supplied Istanbul as its initial camera target.
+     * Do not let that placeholder survive when a real device location is already
+     * available. We only replace the known Istanbul fallback, so a user-selected
+     * address or a manually browsed city is never overwritten.
+     */
+    private fun centerInitialViewOnGps(activity: Activity, map: MapLibreMap) {
+        if (activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val initialTarget = LatLng(41.0082, 28.9784)
+        val startedAt = System.currentTimeMillis()
+        val timeoutMs = 12_000L
+        val poll = object : Runnable {
+            override fun run() {
+                val cameraTarget = map.cameraPosition.target
+                val stillOnIstanbulFallback = distanceMeters(cameraTarget, initialTarget) <= 2_500.0
+                if (!stillOnIstanbulFallback) return
+
+                val location = map.locationComponent.getLastKnownLocation()
+                if (location != null) {
+                    map.locationComponent.setCameraMode(org.maplibre.android.location.modes.CameraMode.NONE_GPS)
+                    map.cameraPosition = CameraPosition.Builder(map.cameraPosition)
+                        .target(LatLng(location.latitude, location.longitude))
+                        .zoom(maxOf(map.cameraPosition.zoom, 14.5))
+                        .build()
+                    return
+                }
+
+                if (System.currentTimeMillis() - startedAt < timeoutMs) {
+                    mainHandler.postDelayed(this, 500L)
+                }
+            }
+        }
+        mainHandler.post(poll)
+    }
+
+    private fun distanceMeters(a: LatLng, b: LatLng): Double {
+        val earthRadius = 6_371_000.0
+        val lat1 = Math.toRadians(a.latitude)
+        val lat2 = Math.toRadians(b.latitude)
+        val dLat = Math.toRadians(b.latitude - a.latitude)
+        val dLon = Math.toRadians(b.longitude - a.longitude)
+        val sinLat = kotlin.math.sin(dLat / 2.0)
+        val sinLon = kotlin.math.sin(dLon / 2.0)
+        val h = sinLat * sinLat + kotlin.math.cos(lat1) * kotlin.math.cos(lat2) * sinLon * sinLon
+        return 2.0 * earthRadius * kotlin.math.atan2(kotlin.math.sqrt(h), kotlin.math.sqrt(1.0 - h))
     }
 
     /**
@@ -113,18 +170,19 @@ class HaritalarApplication : Application() {
         val container = root as? ViewGroup ?: return
         if (container.findViewWithTag<View>("haritalar-recenter") != null) return
 
+        val density = resources.displayMetrics.density
         val button = Button(activity).apply {
             tag = "haritalar-recenter"
             text = "⌖ Konumuma dön"
             setAllCaps(false)
             textSize = 12f
-            minHeight = 50
+            minHeight = (50 * density).toInt()
             setTextColor(0xFFFFFFFF.toInt())
             background = GradientDrawable().apply {
                 setColor(0xFF1976D2.toInt())
-                cornerRadius = 18f
+                cornerRadius = 18f * density
             }
-            elevation = 7f
+            elevation = 7f * density
             setOnClickListener {
                 val location = map.locationComponent.getLastKnownLocation()
                 if (location != null) {
@@ -137,10 +195,10 @@ class HaritalarApplication : Application() {
                 }
             }
         }
-        container.addView(button, FrameLayout.LayoutParams(-2, 50).apply {
+        container.addView(button, FrameLayout.LayoutParams(-2, (50 * density).toInt()).apply {
             gravity = Gravity.TOP or Gravity.END
-            topMargin = 112
-            rightMargin = 12
+            topMargin = (112 * density).toInt()
+            rightMargin = (12 * density).toInt()
         })
     }
 
