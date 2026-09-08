@@ -102,20 +102,26 @@ object SafetyAlertLifecycleBridge {
         }
     }
 
+    /**
+     * Collects every currently trusted source before deduplication. A successful live
+     * response is not allowed to hide a still-valid cached/offline record; the shared
+     * deduplicator then chooses the most authoritative representation of overlaps.
+     */
     private fun loadPoints(context: Context, route: List<Pair<Double, Double>>): List<SafetyPoint> {
         val cached = readCache(context)
-        return try {
-            val live = if (canFetchLive(context)) fetch(context, route) else emptyList()
-            if (live.isNotEmpty()) {
-                writeCache(context, live)
-                live
-            } else {
-                cached.ifEmpty { loadOfflinePackage(context, route) }
-            }
+        val offline = loadOfflinePackage(context, route)
+        val live = try {
+            if (canFetchLive(context)) fetch(context, route) else emptyList()
         } catch (e: Exception) {
-            Log.w(TAG, "Live safety data unavailable; using fallback", e)
-            cached.ifEmpty { loadOfflinePackage(context, route) }
+            Log.w(TAG, "Live safety data unavailable; using cache/offline fallback", e)
+            emptyList()
         }
+
+        if (live.isNotEmpty()) writeCache(context, live)
+
+        // Never invent data. An empty source simply contributes no candidates.
+        // Deduplication happens after merging so overlapping source records collapse safely.
+        return SafetyPointDeduplicator.deduplicate(live + cached + offline)
     }
 
     private fun canFetchLive(context: Context): Boolean {
