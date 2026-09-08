@@ -46,6 +46,7 @@ Mevcut trafik sınıfları:
 - `TrafficRouteOrchestrator.kt`
 - `TomTomTrafficProvider.kt`
 - `RouteTrafficPresentation.kt`
+- `TrafficRouteRankingService.kt`
 
 Hedef zincir:
 `GERÇEK LIVE PROVIDER → ALTERNATİF → CACHE → FALLBACK → BASE VALHALLA ETA`
@@ -85,6 +86,20 @@ Test:
 
 Bu katman henüz MainActivity route card rendering'ine bağlanmış değildir.
 
+## Trafik route ranking orchestration — mevcut durum
+
+`TrafficRouteRankingService.kt`, bir route seti için provider chain üzerinden tek trafik snapshot'ı alıp tüm route adaylarını canonical geometry-aware `TrafficRouteRanking` üzerinden sıralar.
+
+- Boş route listesinde provider çağrısı yapılmaz.
+- Route geometry geçersizse güvenli biçimde base ETA korunur.
+- Provider/network hatası trafik uygulamadan base ETA'ya düşer.
+- Snapshot provider chain'in live → cache → fallback kurallarından geçer.
+- Route setindeki koordinatlar tek bounded traffic request için birleştirilir; provider tarafında mevcut 8 örnek limiti korunur.
+- UI bağımlılığı yoktur; aynı servis route cards, navigation refresh ve reroute tarafından paylaşılabilir.
+
+Test:
+`core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteRankingServiceTest.kt`
+
 ## Routing / 7 rota
 
 Valhalla gerçek routing motorudur. MainActivity şu hedef seçenekleri gerçek Valhalla istekleriyle üretir:
@@ -105,44 +120,39 @@ Mevcut MainActivity'de GPS, MapLibre, Nominatim arama, Valhalla routing, TTS, na
 ## Güncel doğrulanmış durum — 2026-09-08
 
 `main` HEAD:
-`0d7181d19f97d4eb40027517078bc6bd1ef49132`
+`15315adc98b033c52bc2a63c2b492e95c419a48a`
 
 HEAD commit:
-`test(traffic): cover safe route traffic presentation`
+`fix(test): remove coroutine dependency from traffic ranking tests`
 
 Bu turdaki gerçek değişiklik zinciri:
-- `7f3a5b953954e7e62918d93084ef049ad634fddd` — `fix(traffic): close TomTom connection without Closeable use`
-- `0f979d88f55bb1d2e8b41f0442e4e4d56fc33956` — `feat(traffic): add safe route traffic presentation`
-- `0d7181d19f97d4eb40027517078bc6bd1ef49132` — `test(traffic): cover safe route traffic presentation`
+- `6647c57b7dd36165bfe79c525fe042ffe4bc3813` — `feat(traffic): add route ranking orchestration service`
+- `aef14855c0f29d3936fe911a70d9e90b1d1c4e9e` — `test(traffic): cover route ranking orchestration`
+- `15315adc98b033c52bc2a63c2b492e95c419a48a` — `fix(test): remove coroutine dependency from traffic ranking tests`
 
-Önceki dokümantasyon HEAD'i:
-`3965f67bf34fc7ead3908bb8d458e97fd238d58f`
+Önceki HEAD:
+`daa402e0b9bdeb6c85c645eea484a14e3e35d99b`
 
-## Bu turda çözülen problem
+## Bu turda çözülen / eklenen
 
-GitHub Actions run 275 ve 276, TomTom provider içindeki `HttpURLConnection.use {}` kullanımında Kotlin derleme hatası vererek başarısız olmuştu. Hata `HttpURLConnection` için `Closeable.use` sözleşmesinin uygulanmamasından kaynaklanıyordu. Kod gerçek `try/finally` kapanışına çevrildi ve GitHub'a commit edildi.
+Traffic ranking'in provider orchestration katmanı core'a eklendi. Böylece route seti için provider chain'den tek snapshot alınması ve bunun tüm gerçek route geometry'lerine uygulanması tek bir tekrar kullanılabilir serviste toplandı. Testlerde harici coroutine runtime bağımlılığı kullanılmadı; Kotlin coroutine primitive'i ile suspend fonksiyonlar doğrudan test ediliyor.
 
 ## CI / APK — doğrulanmış gerçek durum
 
 Workflow: `Android APK` (`.github/workflows/android.yml`).
 
-- run `275` — `656d97dd...` — failure: TomTom `connection.use` compile error.
-- run `276` — `1111ff0e...` — failure: aynı compile error.
-- run `277` — `3965f67...` — failure: aynı eski TomTom compile error.
-- run `278` — `7f3a5b95...` — bu kaydın başında tamamlanmış olması henüz doğrulanmadı; son kontrol sırasında CI ilerliyordu.
-- run `279` — `0f979d88...` — son kontrolde `in_progress` idi.
-- run `280` — `0d7181d1...` — son kontrolde `queued/in_progress` aşamasındaydı.
+Güncel commit `15315adc...` için run `284` oluşturuldu ve son kontrol anında `queued` durumundaydı; conclusion henüz yoktur. Bu nedenle bu commit için CI başarılı denmemiştir.
 
-Bu nedenle yeni TomTom/presentation kodunu içeren başarılı CI sonucu henüz doğrulanmış değildir.
+Önceki run `283` (`aef14855...`) son kontrolde `in_progress` idi. Önceki run'ların sonuçları güncel commitin başarısını kanıtlamaz.
 
-Son kesin doğrulanmış başarılı run:
+Son kesin doğrulanmış başarılı APK:
 - run `271`
 - head `0b6b0139d06d31c4aea71bd0530286d6983250c5`
 - conclusion `success`
 - artifact `haritalar-debug-apk-271`
 - test report `haritalar-unit-test-reports-271`
 
-Yeni kodu içeren APK şu anda `hazır` kabul edilmez.
+Yeni traffic ranking service kodunu içeren APK şu anda `hazır` kabul edilmez.
 
 ## Başarılı / mevcut
 
@@ -161,17 +171,18 @@ GitHub kodu ve doğrulanmış geçmiş CI ile mevcut:
 - TrafficRouteMatcher/Adapter/CostModel/Ranking/Intelligence/Orchestrator
 - TomTom provider adapterı ve parser testleri kodda mevcut
 - RouteTrafficPresentation modeli ve testleri kodda mevcut
+- TrafficRouteRankingService ve orchestration testleri kodda mevcut
 
-Ancak yeni kodların CI sonucu kesinleşmeden yeni sürümün build edilmiş/başarılı olduğu söylenmez.
+Yeni kodun CI sonucu kesinleşmeden yeni sürümün build edilmiş/başarılı olduğu söylenmez.
 
 ## Açık işler / sıradaki gerçek hedef
 
-1. `0d7181d1...` için güncel CI sonucunu doğrula.
-2. Başarılıysa yeni APK artifact/release çıktısını doğrula.
+1. Güncel run `284` sonucunu doğrula; gerekirse test hatasını gerçek logdan düzelt.
+2. Başarılıysa yeni APK artifact'ını doğrula.
 3. TomTom credential/configuration'ı secret güvenliğiyle uygulamaya bağla; kota/ücret/kullanım şartlarını doğrula.
 4. Gerçek TomTom endpoint erişimini gerçek credential ile fixture'dan ayrı doğrula.
 5. Refresh/cooldown/cache ile GPS başına gereksiz çağrıları engelle.
-6. `TrafficProviderChain → TrafficRouteRanking → RouteTrafficPresentation → MainActivity` zincirini küçük bir entegrasyon katmanıyla bağla.
+6. `TrafficProviderChain → TrafficRouteRankingService → TrafficRoutePresentation → MainActivity` zincirini MainActivity'yi komple rewrite etmeden bağla.
 7. 7 route card için traffic-adjusted ETA ve ranking sıralamasını gerçek snapshot ile integration/smoke test et.
 8. HERE ancak gerçek API erişimi ve kullanım şartları doğrulanırsa değerlendir.
 
@@ -194,4 +205,4 @@ EGM EDS, İçişleri, KGM, İBB, TomTom, HERE, OpenStreetMap ve Valhalla kaynakl
 
 ## Sonraki hedef
 
-**CI temizliğini tamamladıktan sonra gerçek TomTom snapshot akışını mevcut TrafficProviderChain ve TrafficRouteRanking üzerinden RouteTrafficPresentation'a, ardından MainActivity'nin gerçek 7 rota kartlarına bağlamak. Trafik verisi yoksa UI temel Valhalla ETA'sına aynen dönmeli; hiçbir yerde sentetik trafik farkı gösterilmemelidir.**
+**Önce run 284 CI sonucunu doğrula. Temiz CI sonrası gerçek TomTom credential/configuration ve kontrollü refresh/cache katmanını kur; ardından `TrafficRouteRankingService`i MainActivity'nin 7 gerçek rota kartına bağla. Trafik verisi yoksa UI temel Valhalla ETA'sına aynen dönmeli; hiçbir yerde sentetik trafik farkı gösterilmemelidir.**
