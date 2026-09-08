@@ -22,7 +22,6 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
-import java.util.WeakHashMap
 
 /**
  * Installs map-browse affordances without coupling them to the large MainActivity.
@@ -31,7 +30,6 @@ import java.util.WeakHashMap
  */
 class HaritalarApplication : Application() {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val initialGpsCenterRequested = WeakHashMap<MapView, Boolean>()
 
     override fun onCreate() {
         super.onCreate()
@@ -56,6 +54,19 @@ class HaritalarApplication : Application() {
         val root = content.getChildAt(0) ?: return
         val mapView = findView(root, MapView::class.java) ?: return
 
+        // MainActivity's controls historically used MATCH_PARENT height. Even
+        // though most of that area is visually transparent, the LinearLayout
+        // still receives touch events and prevents MapLibre from seeing a
+        // finger drag. Keep only the actual search controls in that layer.
+        if (root is FrameLayout && root.childCount > 1) {
+            val controls = root.getChildAt(1)
+            val params = controls.layoutParams
+            if (params != null && params.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                params.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                controls.layoutParams = params
+            }
+        }
+
         installRoutePanelOverlay(root)
 
         mapView.getMapAsync { map ->
@@ -68,47 +79,44 @@ class HaritalarApplication : Application() {
             map.uiSettings.isRotateGesturesEnabled = true
             map.uiSettings.isTiltGesturesEnabled = true
             addRecenterButton(activity, root, map)
-            centerInitialViewOnGps(activity, mapView, map)
+            centerInitialViewOnGps(activity, map)
         }
     }
 
     /**
-     * Center on the real device location once at startup, but only while the
-     * camera is still at the map's original position. There is deliberately no
-     * hard-coded city fallback: if the user pans, zooms, rotates, tilts or
-     * searches before a GPS fix arrives, that interaction wins and is never
-     * overwritten by this initial-location helper.
+     * Center on the first real device location without depending on a hardcoded
+     * city. If the user moves the camera before GPS is available, never override
+     * that manual browsing choice.
      */
-    private fun centerInitialViewOnGps(activity: Activity, mapView: MapView, map: MapLibreMap) {
-        if (initialGpsCenterRequested[mapView] == true) return
+    private fun centerInitialViewOnGps(activity: Activity, map: MapLibreMap) {
         if (activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
             activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
         ) return
 
-        initialGpsCenterRequested[mapView] = true
         val initialCamera = map.cameraPosition
         val initialTarget = initialCamera.target
         val initialZoom = initialCamera.zoom
         val startedAt = System.currentTimeMillis()
         val timeoutMs = 12_000L
-
         val poll = object : Runnable {
             override fun run() {
-                val currentCamera = map.cameraPosition
-                val currentTarget = currentCamera.target
-                val movedFromInitial = initialTarget?.let { original ->
-                    currentTarget?.let { current -> distanceMeters(current, original) > 50.0 } ?: true
-                } ?: false
-                val zoomChanged = kotlin.math.abs(currentCamera.zoom - initialZoom) > 0.25
+                val current = map.cameraPosition
+                val currentTarget = current.target
+                val movedFromInitial = if (initialTarget != null && currentTarget != null) {
+                    distanceMeters(currentTarget, initialTarget) > 50.0
+                } else {
+                    currentTarget == null
+                }
+                val zoomChanged = kotlin.math.abs(current.zoom - initialZoom) > 0.25
                 if (movedFromInitial || zoomChanged) return
 
                 val location = findLastDeviceLocation(activity)
                     ?: map.locationComponent.getLastKnownLocation()
                 if (location != null) {
                     map.locationComponent.setCameraMode(org.maplibre.android.location.modes.CameraMode.NONE_GPS)
-                    map.cameraPosition = CameraPosition.Builder(currentCamera)
+                    map.cameraPosition = CameraPosition.Builder(current)
                         .target(LatLng(location.latitude, location.longitude))
-                        .zoom(maxOf(currentCamera.zoom, 14.5))
+                        .zoom(maxOf(current.zoom, 14.5))
                         .build()
                     return
                 }
