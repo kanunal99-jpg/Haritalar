@@ -1,6 +1,7 @@
 package com.haritalar.app
 
 import android.content.Context
+import com.haritalar.core.safety.SafetyReportQueue
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -52,20 +53,10 @@ object SafetyReportStore {
     @Synchronized
     fun acknowledge(context: Context, reportIds: Collection<String>): Int {
         val current = read(context)
-        val remaining = filterAcknowledged(current, reportIds)
+        val remaining = SafetyReportQueue.acknowledge(current, reportIds) { it.id }
         val removed = current.size - remaining.size
         if (removed > 0) write(context, remaining)
         return removed
-    }
-
-    /** Pure filtering boundary used by the persistence operation and JVM tests. */
-    internal fun filterAcknowledged(
-        reports: List<Report>,
-        reportIds: Collection<String>,
-    ): List<Report> {
-        val ids = reportIds.mapNotNull { it.trim().takeIf(String::isNotEmpty) }.toSet()
-        if (ids.isEmpty()) return reports
-        return reports.filterNot { it.id in ids }
     }
 
     private fun read(context: Context): List<Report> = runCatching {
