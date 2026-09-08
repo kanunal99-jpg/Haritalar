@@ -69,21 +69,42 @@ Gerçekten mevcut dosyalar:
 - `RouteTrafficIntelligence.kt`
 - `TrafficRouteIntelligence.kt`
 - `TrafficRouteOrchestrator.kt`
+- `TomTomTrafficProvider.kt`
 
 `TrafficProvider.kt` canlı trafik provider sınırını tanımlar ve core katmanı web sayfası scraping'ini trafik kaynağı olarak kabul etmez.
 
-`TrafficProviderChain` hedef zinciri canlı provider → cache → fallback şeklindedir.
+`TrafficProviderChain` canlı provider → cache → fallback sırasını uygular; provider id, expiry ve timestamp kontrolleri yapılır.
 
 `TrafficRouteMatcher` gerçek provider geometry'sini rota geometry'siyle eşleştirmelidir; eşleşmeyen trafik verisi uygulanmaz.
 
-`TrafficRouteRanking` gerçek kullanılabilir snapshot geldiğinde route ETA/order etkisi oluşturabilir. Snapshot yoksa temel Valhalla ETA/order korunmalıdır.
+`TrafficRouteRanking` kullanılabilir snapshot geldiğinde route ETA/order etkisi oluşturabilir. Expired, provider-mismatch veya LOW-confidence snapshot trafik maliyetine uygulanmaz.
 
-## 6. Trafik provider planı
+## 6. TomTom provider — mevcut gerçek durum
+
+`TomTomTrafficProvider` gerçek TomTom Traffic Flow Segment Data endpointine adapter sağlar.
+
+Özellikler:
+- API key boşsa provider pasiftir ve `supports()` false döner.
+- Secret repoya konulmaz; key constructor/configuration üzerinden verilmelidir.
+- Web sayfası scraping yapılmaz.
+- Route geometry'den en fazla 8 örnek nokta alınır; sınırsız GPS başına çağrı yapılmaz.
+- Route yoksa bounds merkezinden tek gerçek provider sorgusu yapılabilir.
+- `currentSpeed`, `freeFlowSpeed` ve provider geometry doğrulanmadan segment oluşturulmaz.
+- Provider geometry route matching için `TrafficSegment.geometry` içine taşınır.
+- Alınan gözlemler 60 saniyelik yerel TTL ile snapshot'a konur; daha üst cache/refresh politikası ayrıca uygulanacaktır.
+- Provider hiç geçerli segment parse edemezse snapshot LOW confidence ve boş segment ile döner; sahte trafik üretilmez.
+
+Test:
+- `TomTomTrafficProviderTest` API key güvenlik kapısını, gerçek response biçimi parser'ını ve malformed payload davranışını doğrular.
+
+ÖNEMLİ: TomTom adapter'ı kodda mevcut olsa da henüz MainActivity/uygulama DI katmanına canlı API key ile bağlanmış değildir. Bu nedenle canlı trafik ürün özelliği tamamlanmış kabul edilmez.
+
+## 7. Trafik provider planı
 
 Öncelik ve kapsam veri türüne göre belirlenecek:
 
 ### Canlı trafik
-- TomTom — gerçek canlı trafik provider adayı
+- TomTom — adapter mevcut, credential/uygulama bağlantısı henüz tamamlanmadı
 - HERE — gerçek canlı trafik provider adayı
 - İBB — yalnızca kapsadığı bölgede ve erişim koşulları uygunsa
 - Kocaeli yerel kaynakları — yalnızca gerçek makine-okunabilir veri erişimi varsa
@@ -101,21 +122,6 @@ Gerçekten mevcut dosyalar:
 
 Bir siteye ait web haritasının bulunması tek başına API olduğu anlamına gelmez. Her provider için API/makine-okunabilir veri, authentication, kota, lisans/kullanım şartları, güncellik ve geometry doğrulanmadan entegrasyon tamamlanmış sayılmaz.
 
-## 7. TomTom kota stratejisi
-
-Diğer kaynaklar TomTom'un kotasını artırmaz; TomTom'a yapılması gereken çağrı sayısını azaltabilir.
-
-Bu nedenle:
-- refresh throttle
-- cache
-- aynı bölge/rota için tekrar kullanım
-- kapsama uygun provider seçimi
-- gereksiz GPS başına API çağrısı yapmama
-- başarısız provider'dan sonra fallback
-uygulanacaktır.
-
-TomTom/API anahtarı gerektiren servisler kullanıcı onayı olmadan ücret doğuracak şekilde etkinleştirilmeyecek ve secret repoya yazılmayacaktır.
-
 ## 8. 7 rota
 
 Uygulamadaki hedef rota kartları:
@@ -127,12 +133,7 @@ Uygulamadaki hedef rota kartları:
 6. Feribotsuz
 7. Ücretsiz + feribotsuz
 
-Trafik gerçekten mevcutsa ranking sonucunun bu 7 kartın gerçek sıralamasına bağlanması gerekir.
-
-Örnek UI:
-`43 dk • trafik +3 dk`
-
-Trafik verisi yoksa uydurma gecikme gösterilmez; Valhalla base ETA korunur.
+MainActivity'de bu yedi Valhalla isteği gerçek sonuçlardan oluşturuluyor. Ancak trafik ranking sonucu henüz bu UI kartlarının sıralama/ETA alanına bağlanmış değildir.
 
 ## 9. Feribot
 
@@ -198,15 +199,37 @@ APK gerçekten oluşmadıysa indirme linki varmış gibi davranılmaz.
 
 Tarih: 2026-09-08
 
-`main` HEAD:
-`9a8d5cf106c84f051a9a23657aac2633f7ae0fd5`
+`main` HEAD bu turdaki son kod commitidir:
+`656d97dd53e9587fcf795497dbd580714fbe12b2`
 
 HEAD commit:
-`test(traffic): align orchestrator fallback types`
+`fix(traffic): use existing coroutine test helper`
 
-Mevcut HEAD trafik orchestrator testindeki `Double`/`Long` fallback tip uyumsuzluğunu düzeltiyor.
+Bu turda önceki HEAD `0b6b0139d06d31c4aea71bd0530286d6983250c5` GitHub'dan doğrulandı. Ardından TomTom adapterı ve testleri eklendi; test dosyasında proje tarafından zaten kullanılan dependency-free coroutine test yardımcı yaklaşımı kullanıldı.
 
-### Başarılı / mevcut
+### Bu turdaki gerçek değişiklikler
+- `core/src/main/kotlin/com/haritalar/core/traffic/TomTomTrafficProvider.kt` eklendi.
+- `core/src/test/kotlin/com/haritalar/core/traffic/TomTomTrafficProviderTest.kt` eklendi.
+- `PROJECT_WORK_PROMPT.md` bu değişikliklerin ardından yeniden güncellendi.
+
+### CI doğrulaması
+
+`main` push'ları GitHub Actions `Android APK` workflow'unu tetikliyor.
+
+Bu turdaki son test commit'i `656d97dd53e9587fcf795497dbd580714fbe12b2` için run `275` GitHub'da `queued` durumunda doğrulandı. Bu belge güncellenirken bu run'ın sonucu henüz başarılı olarak doğrulanmamıştır.
+
+Önceki doğrulanmış başarılı run:
+- run `271`
+- commit `0b6b0139d06d31c4aea71bd0530286d6983250c5`
+- conclusion `success`
+- debug APK artifact: `haritalar-debug-apk-271`
+- unit test reports artifact: `haritalar-unit-test-reports-271`
+
+Son başarılı APK, bu turdaki TomTom değişikliklerini içermediği için yeni APK hazır kabul edilmez.
+
+## 16. Başarılı / mevcut işler
+
+GitHub kodu ve önceki başarılı CI ile doğrulananlar:
 - Android uygulama iskeleti
 - MapLibre harita
 - OpenFreeMap harita görünümü
@@ -221,15 +244,20 @@ Mevcut HEAD trafik orchestrator testindeki `Double`/`Long` fallback tip uyumsuzl
 - TrafficProviderChain live/cache/fallback sözleşmesi
 - TrafficRouteMatcher/Adapter/CostModel/Ranking/Intelligence/Orchestrator
 - GitHub Actions debug APK + unit test zinciri
+- TomTom Flow provider adapter kodu ve parser güvenlik testleri (CI sonucu bu tur için henüz beklemede)
 
-### Eksik / sonraki gerçek işler
-- doğrulanmış gerçek canlı trafik provider adapter'ı
-- TomTom/HERE için gerçek API erişim ve parser, kullanım şartları/kota doğrulaması
-- resmi/yerel kaynakların yalnızca gerçekten erişilebilir makine-okunabilir verileri için provider'lar
-- trafik ranking sonucunun MainActivity'deki gerçek 7 route card akışına bağlanmasının uçtan uca doğrulanması
-- gerçek trafik snapshot'ı ile integration/smoke test
+## 17. Eksik / sonraki gerçek işler
 
-### Kesinlikle gidilmeyecek yollar
+1. `656d97dd...` için CI sonucunu doğrula.
+2. CI başarılı olduktan sonra APK artifact'ını doğrula.
+3. TomTom credential/config katmanını secret güvenliğiyle uygulamaya bağla; ücret/kota koşullarını doğrulamadan canlı kullanım açma.
+4. TomTom gerçek endpoint erişimini test fixture'ı dışında gerçek credential ile doğrula; response timestamp/freshness ve kota davranışını ayrıca değerlendir.
+5. TrafficProviderChain → TrafficRouteRanking → RouteTrafficPresentation → MainActivity 7 rota kartları zincirini gerçek snapshot ile uçtan uca bağla ve test et.
+6. Refresh/cooldown/cache katmanını GPS başına gereksiz çağrıyı önleyecek şekilde tamamla.
+7. HERE adapterını ancak gerçek erişim koşulları doğrulanırsa değerlendir.
+
+## 18. Kesinlikle gidilmeyecek yollar
+
 - sahte trafik snapshot
 - sahte radar koordinatı
 - OSM'yi canlı trafik API'si gibi kullanmak
@@ -240,32 +268,12 @@ Mevcut HEAD trafik orchestrator testindeki `Double`/`Long` fallback tip uyumsuzl
 - API secret'ını repoya koymak
 - büyük MainActivity dosyasını okunmadan komple değiştirmek
 - başarısız CI'ı başarılı göstermek
+- CI'da üretilmemiş APK'yı hazır göstermek
 
-## 16. Her turda prompt yenileme zorunluluğu
-
-Bu dosya her gerçek geliştirme turunun sonunda yeniden doğrulanacaktır.
-
-Aşağıdaki alanlardan değişenler güncellenecek:
-- HEAD/commit
-- klasör yapısı
-- dosyalar ve önemli sınıflar
-- provider'lar
-- referans siteler ve doğrulanmış erişim durumu
-- trafik/radar/ferry/routing durumu
-- testler
-- CI
-- APK
-- başarılı işler
-- başarısız/eksik işler
-- gidilmeyecek yollar
-- sıradaki gerçek kod hedefi
-
-Eski bilgi güncel durumla çelişiyorsa eski bilgi silinecek/düzeltilecek. Bu belge projenin yaşayan teknik çalışma hafızasıdır.
-
-## 17. Bir sonraki hedef
+## 19. Bir sonraki hedef
 
 İlk sıradaki teknik hedef:
 
-**Gerçek trafik provider entegrasyonunu güvenli biçimde hazırlamak ve ardından TrafficProviderChain → TrafficRouteRanking → RouteTrafficPresentation → MainActivity 7 rota kartları zincirini gerçek verili integration testiyle doğrulamak.**
+**TomTom provider'ı güvenli configuration/credential katmanına bağlamadan önce mevcut CI sonucunu doğrulamak; ardından gerçek snapshot akışını TrafficProviderChain → TrafficRouteRanking → RouteTrafficPresentation → MainActivity 7 rota kartlarına bağlayan küçük, test edilebilir bir entegrasyon katmanı oluşturmak.**
 
 Gerçek provider bulunmadan trafik değeri üretilmeyecek.
