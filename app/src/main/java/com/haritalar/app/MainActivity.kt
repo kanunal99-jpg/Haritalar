@@ -62,7 +62,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         private const val ROUTE_LAYER = "haritalar-route-layer"
         private const val OFF_ROUTE_METERS = 60.0
         private const val REROUTE_COOLDOWN_MS = 15_000L
-        private const val START_TTS = "LANU iyi yolculuklar diler. Emniyet kemerinizi, aynalarınızı ve lastiklerinizi kontrol ediniz. Güvenli yolculuklar."
+        private const val START_TTS = "Lanu iyi yolculuklar diler. Emniyet kemerinizi, aynalarınızı ve lastiklerinizi kontrol ediniz. Güvenli yolculuklar."
     }
 
     private lateinit var mapView: MapView
