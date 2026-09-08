@@ -24,8 +24,8 @@ object ValhallaTransportParser {
             val maneuver = maneuvers.optJSONObject(index) ?: continue
             types += ValhallaTransportClassifier.classify(
                 ferry = maneuver.optBoolean("ferry", false),
-                travelType = maneuver.optString("travel_type", null),
-                travelMode = maneuver.optString("travel_mode", null),
+                travelType = maneuver.optString("travel_type", ""),
+                travelMode = maneuver.optString("travel_mode", ""),
                 maneuverType = if (maneuver.has("type")) maneuver.optInt("type") else null,
             )
         }
