@@ -108,11 +108,11 @@ object SafetyAlertLifecycleBridge {
                 writeCache(context, live)
                 live
             } else {
-                cached.ifEmpty { loadOfflinePackage(context, route) }
+                cached.ifEmpty { SafetyOfflinePackageLoader.pointsForRoute(context, route) }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Live safety data unavailable; using fallback", e)
-            cached.ifEmpty { loadOfflinePackage(context, route) }
+            cached.ifEmpty { SafetyOfflinePackageLoader.pointsForRoute(context, route) }
         }
     }
 
@@ -175,21 +175,8 @@ object SafetyAlertLifecycleBridge {
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("points", a.toString()).putLong("time", System.currentTimeMillis()).apply()
     }
 
-    /** Loads only explicitly bundled offline data; an empty package is a safe silent default. */
-    private fun loadOfflinePackage(c: Context, route: List<Pair<Double, Double>>): List<SafetyPoint> = runCatching {
-        val root = JSONObject(c.assets.open("safety_offline.json").bufferedReader().use { it.readText() })
-        val regions = root.optJSONArray("regions") ?: return@runCatching emptyList()
-        val south = route.minOf { it.first } - .002; val north = route.maxOf { it.first } + .002
-        val west = route.minOf { it.second } - .002; val east = route.maxOf { it.second } + .002
-        val selected = JSONArray()
-        for (i in 0 until regions.length()) {
-            val region = regions.getJSONObject(i); val box = region.optJSONObject("bbox") ?: continue
-            if (box.optDouble("north", Double.NEGATIVE_INFINITY) < south || box.optDouble("south", Double.POSITIVE_INFINITY) > north || box.optDouble("east", Double.NEGATIVE_INFINITY) < west || box.optDouble("west", Double.POSITIVE_INFINITY) > east) continue
-            val points = region.optJSONArray("points") ?: continue
-            for (j in 0 until points.length()) selected.put(points.getJSONObject(j))
-        }
-        parse(selected).map { it.copy(source = DataSource.OFFLINE) }
-    }.getOrElse { Log.w(TAG, "Offline safety package unavailable", it); emptyList() }
+    /** Offline data is parsed and trust-validated by SafetyOfflinePackageLoader before use. */
+    private fun loadOfflinePackage(c: Context, route: List<Pair<Double, Double>>): List<SafetyPoint> = SafetyOfflinePackageLoader.pointsForRoute(c, route)
 
     private fun parse(a: JSONArray) = buildList<SafetyPoint> {
         for (i in 0 until a.length()) {
