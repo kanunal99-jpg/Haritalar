@@ -18,25 +18,25 @@ class RouteComparisonSummaryTest {
     fun `summary identifies fastest shortest and cheapest known toll route`() {
         val options = listOf(
             RouteAlternative(
-                "fast",
-                route("fast", 18000.0, 900),
-                RoutePreference.FASTEST,
-                RouteToll(hasToll = true, amountTry = 995.0),
-                "En hızlı",
+                id = "fast",
+                route = route("fast", 18000.0, 900),
+                preference = RoutePreference.FASTEST,
+                toll = RouteToll(hasToll = true, amountTry = 995.0),
+                label = "En hızlı",
             ),
             RouteAlternative(
-                "short",
-                route("short", 12000.0, 1100),
-                RoutePreference.SHORTEST,
-                RouteToll(hasToll = false),
-                "En kısa",
+                id = "short",
+                route = route("short", 12000.0, 1100),
+                preference = RoutePreference.SHORTEST,
+                toll = RouteToll(hasToll = false),
+                label = "En kısa",
             ),
             RouteAlternative(
-                "cheap",
-                route("cheap", 20000.0, 1000),
-                RoutePreference.TOLL_FAST,
-                RouteToll(hasToll = true, amountTry = 120.5),
-                "Ücretli hızlı",
+                id = "cheap",
+                route = route("cheap", 20000.0, 1000),
+                preference = RoutePreference.TOLL_FAST,
+                toll = RouteToll(hasToll = true, amountTry = 120.5),
+                label = "Ücretli hızlı",
             ),
         )
 
@@ -58,18 +58,18 @@ class RouteComparisonSummaryTest {
     fun `unknown toll is excluded from cost comparison and never becomes zero`() {
         val options = listOf(
             RouteAlternative(
-                "unknown",
-                route("unknown", 10000.0, 800),
-                RoutePreference.FASTEST,
-                RouteToll(hasToll = true),
-                "En hızlı",
+                id = "unknown",
+                route = route("unknown", 10000.0, 800),
+                preference = RoutePreference.FASTEST,
+                toll = RouteToll(hasToll = true),
+                label = "En hızlı",
             ),
             RouteAlternative(
-                "known",
-                route("known", 11000.0, 900),
-                RoutePreference.TOLL_FAST,
-                RouteToll(hasToll = true, amountTry = 250.0),
-                "Ücretli hızlı",
+                id = "known",
+                route = route("known", 11000.0, 900),
+                preference = RoutePreference.TOLL_FAST,
+                toll = RouteToll(hasToll = true, amountTry = 250.0),
+                label = "Ücretli hızlı",
             ),
         )
 
@@ -86,18 +86,18 @@ class RouteComparisonSummaryTest {
     fun `all unknown tolls produce an explicit unavailable cost summary`() {
         val options = listOf(
             RouteAlternative(
-                "a",
-                route("a", 10000.0, 800),
-                RoutePreference.FASTEST,
-                RouteToll(hasToll = true, amountTry = Double.NaN),
-                "A",
+                id = "a",
+                route = route("a", 10000.0, 800),
+                preference = RoutePreference.FASTEST,
+                toll = RouteToll(hasToll = true, amountTry = Double.NaN),
+                label = "A",
             ),
             RouteAlternative(
-                "b",
-                route("b", 12000.0, 900),
-                RoutePreference.TOLL_FAST,
-                RouteToll(hasToll = true, amountTry = Double.POSITIVE_INFINITY),
-                "B",
+                id = "b",
+                route = route("b", 12000.0, 900),
+                preference = RoutePreference.TOLL_FAST,
+                toll = RouteToll(hasToll = true, amountTry = Double.POSITIVE_INFINITY),
+                label = "B",
             ),
         )
 
