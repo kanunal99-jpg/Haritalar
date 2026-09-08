@@ -156,6 +156,15 @@ class LiveNavigationPoiLayer(
         mainHandler.post { onPoiSelected(details) }
     }
 
+    fun clearSelection() {
+        mainHandler.post {
+            selectedMarker?.remove()
+            selectedMarker = null
+            val source = map?.style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource
+            source?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+        }
+    }
+
     fun scheduleRefresh(bounds: LatLngBounds?) {
         if (bounds == null || bounds.isEmptySpan) return
         val south = bounds.latitudeSouth
