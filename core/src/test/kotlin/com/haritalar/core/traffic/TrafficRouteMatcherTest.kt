@@ -97,6 +97,27 @@ class TrafficRouteMatcherTest {
         assertTrue(matched.isEmpty())
     }
 
+    @Test
+    fun `matched distance ignores unrelated provider geometry tail`() {
+        val matched = TrafficRouteMatcher.match(
+            route,
+            listOf(
+                segment(
+                    id = "partial",
+                    geometry = listOf(
+                        GeoCoordinate(41.0002, 29.0000),
+                        GeoCoordinate(41.0010, 29.0000),
+                        GeoCoordinate(41.0018, 29.0000),
+                        GeoCoordinate(41.0100, 29.0000),
+                    ),
+                ),
+            ),
+        )
+
+        val distance = matched.single().distanceMeters
+        assertTrue(distance in 170.0..190.0)
+    }
+
     private fun segment(
         id: String,
         geometry: List<GeoCoordinate>,
