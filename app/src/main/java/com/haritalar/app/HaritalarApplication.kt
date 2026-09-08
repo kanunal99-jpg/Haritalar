@@ -83,7 +83,7 @@ class HaritalarApplication : Application() {
         val timeoutMs = 12_000L
         val poll = object : Runnable {
             override fun run() {
-                val cameraTarget = map.cameraPosition.target
+                val cameraTarget = map.cameraPosition.target ?: initialTarget
                 val stillOnIstanbulFallback = distanceMeters(cameraTarget, initialTarget) <= 2_500.0
                 if (!stillOnIstanbulFallback) return
 
