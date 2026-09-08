@@ -62,6 +62,53 @@ class TomTomTrafficProviderTest {
     }
 
     @Test
+    fun repeatedSampleWithinCacheTtlUsesOnlyOneHttpRequest() {
+        val response = """
+            {"flowSegmentData":{"frc":"FRC2","currentSpeed":36,"freeFlowSpeed":60,
+            "coordinates":{"coordinate":[{"latitude":41.0080,"longitude":28.9780},
+            {"latitude":41.0090,"longitude":28.9790}]}}}
+        """.trimIndent()
+        var now = 1_000L
+        val client = FakeClient(response)
+        val provider = TomTomTrafficProvider(
+            apiKey = "test-key",
+            httpClient = client,
+            nowEpochMs = { now },
+            maxSamples = 2,
+            cacheTtlMs = 30_000L,
+        )
+
+        runSuspend { provider.fetchTraffic(bounds, TrafficRoute(listOf(point))) }
+        now += 10_000L
+        runSuspend { provider.fetchTraffic(bounds, TrafficRoute(listOf(point))) }
+
+        assertEquals(1, client.requestCount)
+    }
+
+    @Test
+    fun sampleCacheExpiresAndRefreshesAfterTtl() {
+        val response = """
+            {"flowSegmentData":{"frc":"FRC2","currentSpeed":36,"freeFlowSpeed":60,
+            "coordinates":{"coordinate":[{"latitude":41.0080,"longitude":28.9780},
+            {"latitude":41.0090,"longitude":28.9790}]}}}
+        """.trimIndent()
+        var now = 1_000L
+        val client = FakeClient(response)
+        val provider = TomTomTrafficProvider(
+            apiKey = "test-key",
+            httpClient = client,
+            nowEpochMs = { now },
+            cacheTtlMs = 30_000L,
+        )
+
+        runSuspend { provider.fetchTraffic(bounds, TrafficRoute(listOf(point))) }
+        now += 30_001L
+        runSuspend { provider.fetchTraffic(bounds, TrafficRoute(listOf(point))) }
+
+        assertEquals(2, client.requestCount)
+    }
+
+    @Test
     fun malformedProviderPayloadDoesNotCreateTrafficSegment() {
         val provider = TomTomTrafficProvider(
             apiKey = "test-key",
@@ -78,8 +125,10 @@ class TomTomTrafficProviderTest {
     private class FakeClient(private val body: String) : TomTomTrafficHttpClient {
         var lastPoint: GeoCoordinate? = null
         var lastApiKey: String? = null
+        var requestCount: Int = 0
 
         override fun fetch(point: GeoCoordinate, apiKey: String, endpoint: String): String {
+            requestCount++
             lastPoint = point
             lastApiKey = apiKey
             return body
