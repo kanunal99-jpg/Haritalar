@@ -6,12 +6,13 @@ import kotlin.test.assertTrue
 
 class SafetyOfflinePackageTest {
     private fun point(
+        id: String = "offline-1",
         source: DataSource = DataSource.OFFLINE,
         type: SafetyPointType = SafetyPointType.FIXED_SPEED_CAMERA,
         confidence: Confidence = Confidence.HIGH,
         latitude: Double = 41.0,
         longitude: Double = 29.0,
-    ) = SafetyPoint("offline-1", latitude, longitude, type, confidence, source)
+    ) = SafetyPoint(id, latitude, longitude, type, confidence, source)
 
     @Test
     fun validOfflinePackageIsAccepted() {
@@ -58,6 +59,37 @@ class SafetyOfflinePackageTest {
             type = SafetyPointType.VERIFIED_TRAFFIC_CONTROL,
             confidence = Confidence.MEDIUM,
         )
+        val pkg = SafetyOfflinePackage(1, listOf(SafetyOfflineRegion("r", listOf(invalid))))
+        assertFalse(SafetyOfflinePackageValidator.validate(pkg))
+    }
+
+    @Test
+    fun duplicateRegionIdsAreRejected() {
+        val pkg = SafetyOfflinePackage(
+            1,
+            listOf(
+                SafetyOfflineRegion("same", emptyList()),
+                SafetyOfflineRegion("same", emptyList()),
+            ),
+        )
+        assertFalse(SafetyOfflinePackageValidator.validate(pkg))
+    }
+
+    @Test
+    fun duplicatePointIdsAcrossRegionsAreRejected() {
+        val pkg = SafetyOfflinePackage(
+            1,
+            listOf(
+                SafetyOfflineRegion("a", listOf(point(id = "same"))),
+                SafetyOfflineRegion("b", listOf(point(id = "same"))),
+            ),
+        )
+        assertFalse(SafetyOfflinePackageValidator.validate(pkg))
+    }
+
+    @Test
+    fun nonPositiveSpeedIsRejected() {
+        val invalid = point().copy(speedLimitKmh = 0)
         val pkg = SafetyOfflinePackage(1, listOf(SafetyOfflineRegion("r", listOf(invalid))))
         assertFalse(SafetyOfflinePackageValidator.validate(pkg))
     }
