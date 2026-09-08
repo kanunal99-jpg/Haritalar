@@ -9,6 +9,25 @@ data class RouteTrafficUiModel(
     val delaySeconds: Double
         get() = (adjustedDurationSeconds - baseDurationSeconds).coerceAtLeast(0.0)
 
+    companion object {
+        fun from(
+            baseDurationSeconds: Double,
+            adjustedDurationSeconds: Double?,
+            trafficApplied: Boolean,
+        ): RouteTrafficUiModel {
+            val safeBase = baseDurationSeconds.coerceAtLeast(0.0)
+            val safeAdjusted = adjustedDurationSeconds
+                ?.takeIf { it.isFinite() && it >= safeBase }
+                ?: safeBase
+            val effectiveTraffic = trafficApplied && safeAdjusted > safeBase
+            return RouteTrafficUiModel(
+                baseDurationSeconds = safeBase,
+                adjustedDurationSeconds = safeAdjusted,
+                trafficApplied = effectiveTraffic,
+            )
+        }
+    }
+
     fun durationLabel(): String = if (!trafficApplied) {
         "%.0f dk".format(baseDurationSeconds / 60.0)
     } else {
