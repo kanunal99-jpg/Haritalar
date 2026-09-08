@@ -3,8 +3,11 @@ package com.haritalar.app
 import android.Manifest
 import android.app.Activity
 import android.app.Application
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
+import android.location.Location
+import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -69,9 +72,13 @@ class HaritalarApplication : Application() {
 
     /**
      * MainActivity historically supplied Istanbul as its initial camera target.
-     * Do not let that placeholder survive when a real device location is already
-     * available. We only replace the known Istanbul fallback, so a user-selected
-     * address or a manually browsed city is never overwritten.
+     * Prefer a real device location from Android's LocationManager when one is
+     * already available. This is independent of MapLibre's location engine,
+     * which is intentionally disabled by MainActivity and receives updates from
+     * the app's own location listener.
+     *
+     * We only replace the known Istanbul fallback, so a user-selected address or
+     * a manually browsed city is never overwritten.
      */
     private fun centerInitialViewOnGps(activity: Activity, map: MapLibreMap) {
         if (activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
@@ -87,7 +94,8 @@ class HaritalarApplication : Application() {
                 val stillOnIstanbulFallback = distanceMeters(cameraTarget, initialTarget) <= 2_500.0
                 if (!stillOnIstanbulFallback) return
 
-                val location = map.locationComponent.getLastKnownLocation()
+                val location = findLastDeviceLocation(activity)
+                    ?: map.locationComponent.getLastKnownLocation()
                 if (location != null) {
                     map.locationComponent.setCameraMode(org.maplibre.android.location.modes.CameraMode.NONE_GPS)
                     map.cameraPosition = CameraPosition.Builder(map.cameraPosition)
@@ -103,6 +111,27 @@ class HaritalarApplication : Application() {
             }
         }
         mainHandler.post(poll)
+    }
+
+    private fun findLastDeviceLocation(activity: Activity): Location? {
+        val locationManager = activity.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        return providers.asSequence()
+            .filter { provider ->
+                try {
+                    locationManager.isProviderEnabled(provider)
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            .mapNotNull { provider ->
+                try {
+                    locationManager.getLastKnownLocation(provider)
+                } catch (_: SecurityException) {
+                    null
+                }
+            }
+            .maxByOrNull { it.time }
     }
 
     private fun distanceMeters(a: LatLng, b: LatLng): Double {
@@ -184,7 +213,8 @@ class HaritalarApplication : Application() {
             }
             elevation = 7f * density
             setOnClickListener {
-                val location = map.locationComponent.getLastKnownLocation()
+                val location = findLastDeviceLocation(activity)
+                    ?: map.locationComponent.getLastKnownLocation()
                 if (location != null) {
                     map.locationComponent.setCameraMode(org.maplibre.android.location.modes.CameraMode.NONE_GPS)
                     map.cameraPosition = CameraPosition.Builder(map.cameraPosition)
