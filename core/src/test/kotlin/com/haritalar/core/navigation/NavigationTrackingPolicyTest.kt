@@ -5,6 +5,22 @@ import kotlin.test.assertEquals
 
 class NavigationTrackingPolicyTest {
     @Test
+    fun inactiveNavigationUsesBrowseMode() {
+        assertEquals(
+            NavigationTrackingPolicy.Mode.BROWSE,
+            NavigationTrackingPolicy.modeFor(navigationActive = false),
+        )
+    }
+
+    @Test
+    fun activeNavigationUsesNavigationMode() {
+        assertEquals(
+            NavigationTrackingPolicy.Mode.NAVIGATION,
+            NavigationTrackingPolicy.modeFor(navigationActive = true),
+        )
+    }
+
+    @Test
     fun browseKeepsMapFreeAndUsesGpsBearingWithoutFollowing() {
         assertEquals(
             NavigationTrackingPolicy.State(
