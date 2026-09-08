@@ -45,7 +45,20 @@ object SafetyReportStore {
         return report
     }
 
+    /** Returns a stable snapshot suitable for a future sync provider. */
     fun pending(context: Context): List<Report> = read(context)
+
+    /** Removes only the explicitly acknowledged report IDs after a successful sync. */
+    @Synchronized
+    fun acknowledge(context: Context, reportIds: Collection<String>): Int {
+        val ids = reportIds.mapNotNull { it.trim().takeIf(String::isNotEmpty) }.toSet()
+        if (ids.isEmpty()) return 0
+        val current = read(context)
+        val remaining = current.filterNot { it.id in ids }
+        val removed = current.size - remaining.size
+        if (removed > 0) write(context, remaining)
+        return removed
+    }
 
     private fun read(context: Context): List<Report> = runCatching {
         val array = JSONArray(
