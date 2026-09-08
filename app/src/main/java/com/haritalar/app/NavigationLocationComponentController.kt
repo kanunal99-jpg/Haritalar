@@ -14,16 +14,14 @@ import org.maplibre.android.location.modes.RenderMode
 object NavigationLocationComponentController {
     fun apply(component: LocationComponent, mode: NavigationTrackingPolicy.Mode) {
         val state = NavigationTrackingPolicy.stateFor(mode)
-        component.cameraMode = when (state.cameraModeName) {
-            "TRACKING_GPS" -> CameraMode.TRACKING_GPS
-            "NONE_GPS" -> CameraMode.NONE_GPS
-            else -> error("Unsupported camera mode: ${state.cameraModeName}")
+        component.cameraMode = when (state.cameraMode) {
+            NavigationTrackingPolicy.CameraMode.TRACKING_GPS -> CameraMode.TRACKING_GPS
+            NavigationTrackingPolicy.CameraMode.NONE_GPS -> CameraMode.NONE_GPS
         }
         component.setRenderMode(
-            when (state.renderModeName) {
-                "GPS" -> RenderMode.GPS
-                "NORMAL" -> RenderMode.NORMAL
-                else -> error("Unsupported render mode: ${state.renderModeName}")
+            when (state.renderMode) {
+                NavigationTrackingPolicy.RenderMode.GPS -> RenderMode.GPS
+                NavigationTrackingPolicy.RenderMode.NORMAL -> RenderMode.NORMAL
             },
         )
     }
