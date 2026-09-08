@@ -23,4 +23,6 @@ android {
 
 dependencies {
     testImplementation(kotlin("test"))
+    // Provide a real JVM org.json implementation for local unit tests.
+    testImplementation("org.json:json:20240303")
 }
