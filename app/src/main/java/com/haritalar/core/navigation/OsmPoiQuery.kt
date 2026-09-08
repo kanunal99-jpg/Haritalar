@@ -31,7 +31,13 @@ object OsmPoiQuery {
               nwr[place_of_worship]($box);
               nwr[public_transport]($box);
             );
-            out center tags $limit;
+            out center tags;
         """.trimIndent()
+    }
+
+    /** Applies the requested result cap after a valid Overpass response is parsed. */
+    fun <T> capResults(results: List<T>, limit: Int): List<T> {
+        require(limit in 1..1000)
+        return results.take(limit)
     }
 }
