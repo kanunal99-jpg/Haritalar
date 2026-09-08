@@ -31,6 +31,19 @@ class TrafficProviderChainTest {
     }
 
     @Test
+    fun ignoresFailingFallbackProvider() {
+        val chain = TrafficProviderChain(
+            providers = emptyList(),
+            fallbackProvider = object : TrafficFallbackProvider {
+                override suspend fun fetchFallback(bounds: TrafficBounds, route: TrafficRoute?): TrafficSnapshot? {
+                    error("fallback unavailable")
+                }
+            },
+        )
+        assertNull(runSuspend { chain.fetch(coordinate, bounds, null, 100) })
+    }
+
+    @Test
     fun returnsNullWhenNothingCanProvideData() {
         val chain = TrafficProviderChain(emptyList())
         assertNull(runSuspend { chain.fetch(coordinate, bounds, null, 100) })
