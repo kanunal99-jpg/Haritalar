@@ -51,13 +51,21 @@ object SafetyReportStore {
     /** Removes only the explicitly acknowledged report IDs after a successful sync. */
     @Synchronized
     fun acknowledge(context: Context, reportIds: Collection<String>): Int {
-        val ids = reportIds.mapNotNull { it.trim().takeIf(String::isNotEmpty) }.toSet()
-        if (ids.isEmpty()) return 0
         val current = read(context)
-        val remaining = current.filterNot { it.id in ids }
+        val remaining = filterAcknowledged(current, reportIds)
         val removed = current.size - remaining.size
         if (removed > 0) write(context, remaining)
         return removed
+    }
+
+    /** Pure filtering boundary used by the persistence operation and JVM tests. */
+    internal fun filterAcknowledged(
+        reports: List<Report>,
+        reportIds: Collection<String>,
+    ): List<Report> {
+        val ids = reportIds.mapNotNull { it.trim().takeIf(String::isNotEmpty) }.toSet()
+        if (ids.isEmpty()) return reports
+        return reports.filterNot { it.id in ids }
     }
 
     private fun read(context: Context): List<Report> = runCatching {
