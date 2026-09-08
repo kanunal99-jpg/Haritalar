@@ -8,6 +8,8 @@ data class NavigationRoute(
     val points: List<GeoCoordinate>,
     val distanceMeters: Double,
     val durationSeconds: Long,
+    /** Provider-derived transport segments; empty means the provider did not expose this data. */
+    val transportTypes: List<RouteTransportType> = emptyList(),
 )
 
 data class NavigationInstruction(
