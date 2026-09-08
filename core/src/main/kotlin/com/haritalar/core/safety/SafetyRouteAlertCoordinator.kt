@@ -13,6 +13,8 @@ import kotlin.math.sqrt
  * The coordinator never invents safety points. If the provider supplies no points,
  * evaluation is silent. Points are evaluated only when they project onto the active
  * route and are still ahead of the current route progress.
+ * Offline points are additionally checked against the offline trust boundary before
+ * they can become tracked alert candidates.
  */
 class SafetyRouteAlertCoordinator(
     private val engine: SafetyAlertEngine = SafetyAlertEngine(),
@@ -32,6 +34,9 @@ class SafetyRouteAlertCoordinator(
     ): List<TrackedPoint> {
         if (route.size < 2 || route.size != cumulativeMeters.size) return emptyList()
         return points.mapNotNull { point ->
+            if (point.source == DataSource.OFFLINE && !SafetyOfflinePackageValidator.isValidOfflinePoint(point)) {
+                return@mapNotNull null
+            }
             val projection = project(route, point.latitude, point.longitude) ?: return@mapNotNull null
             if (projection.distanceMeters > routeMatchToleranceMeters) return@mapNotNull null
             TrackedPoint(point, projection.routeProgressMeters)
@@ -77,7 +82,7 @@ class SafetyRouteAlertCoordinator(
             val b = route[i + 1]
             val segment = haversineMeters(a.latitude, a.longitude, b.latitude, b.longitude)
             val projection = projectSegment(latitude, longitude, a, b)
-            val progress = i.toDouble().let { if (segment == 0.0) 0.0 else projection.fraction * segment } 
+            val progress = i.toDouble().let { if (segment == 0.0) 0.0 else projection.fraction * segment }
             val candidate = Projection(progress + segmentPrefix(route, i), projection.distanceMeters)
             if (best == null || candidate.distanceMeters < best!!.distanceMeters) best = candidate
         }
