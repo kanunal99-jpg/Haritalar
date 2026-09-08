@@ -60,6 +60,19 @@ class TrafficRouteRankingServiceTest {
     }
 
     @Test
+    fun rankBlockingUsesSameRankingPath() {
+        val service = TrafficRouteRankingService(
+            TrafficProviderChain(emptyList()),
+        )
+
+        val result = service.rankBlocking(listOf(routeA, routeB), nowEpochMs = 1_000L, timeoutMs = 1_000L)
+
+        assertEquals(listOf("a", "b"), result.map { it.routeId })
+        assertEquals(listOf(2_400L, 2_700L), result.map { it.adjustedDurationSeconds })
+        assertTrue(result.none { it.trafficApplied })
+    }
+
+    @Test
     fun verifiedSnapshotCanChangeRouteOrdering() {
         val service = TrafficRouteRankingService(
             TrafficProviderChain(listOf(object : TrafficProvider {
