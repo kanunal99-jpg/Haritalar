@@ -6,14 +6,20 @@ object SafetyReportQueue {
      * Removes only IDs explicitly acknowledged by the sync result.
      * Unknown IDs are ignored and unacknowledged reports remain queued.
      */
-    fun acknowledge(
-        reports: List<SafetyReport>,
+    fun <T> acknowledge(
+        reports: List<T>,
         acknowledgedIds: Collection<String>,
-    ): List<SafetyReport> {
+        idSelector: (T) -> String,
+    ): List<T> {
         val ids = acknowledgedIds
             .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
             .toSet()
         if (ids.isEmpty()) return reports
-        return reports.filterNot { it.id in ids }
+        return reports.filterNot { idSelector(it) in ids }
     }
+
+    fun acknowledge(
+        reports: List<SafetyReport>,
+        acknowledgedIds: Collection<String>,
+    ): List<SafetyReport> = acknowledge(reports, acknowledgedIds) { it.id }
 }
