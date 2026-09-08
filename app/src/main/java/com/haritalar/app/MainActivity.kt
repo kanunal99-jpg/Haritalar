@@ -491,8 +491,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                         )
                     }
                     val ranked = trafficRankingService.rankBlocking(candidates)
-                    RouteTrafficPresentation.fromRanked(ranked)
-                        .let { models -> candidates.map { it.routeId }.zip(models).toMap() }
+                    ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
+                        .associate { (candidate, model) -> candidate.routeId to model }
                 }.getOrElse { emptyMap() }
 
                 runOnUiThread {
