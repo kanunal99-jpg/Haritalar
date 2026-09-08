@@ -48,4 +48,25 @@ class SafetyRouteAlertCoordinatorTest {
         val tracked = coordinator.trackPoints(route, cumulative, listOf(point))
         assertTrue(coordinator.evaluate(tracked, 0.0, 270.0).isEmpty())
     }
+
+    @Test fun rejectsInvalidOfflinePointBeforeRouteTracking() {
+        val coordinator = SafetyRouteAlertCoordinator()
+        val invalidOffline = point.copy(
+            id = "offline-invalid",
+            source = DataSource.OFFLINE,
+            latitude = 95.0,
+        )
+        assertTrue(coordinator.trackPoints(route, cumulative, listOf(invalidOffline)).isEmpty())
+    }
+
+    @Test fun rejectsUserReportedPointFromOfflineTracking() {
+        val coordinator = SafetyRouteAlertCoordinator()
+        val userReportedOffline = point.copy(
+            id = "offline-user-report",
+            source = DataSource.OFFLINE,
+            type = SafetyPointType.USER_REPORTED_SAFETY_POINT,
+            confidence = Confidence.LOW,
+        )
+        assertTrue(coordinator.trackPoints(route, cumulative, listOf(userReportedOffline)).isEmpty())
+    }
 }
