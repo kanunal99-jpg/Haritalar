@@ -11,7 +11,7 @@ class RouteTrafficIntelligenceTest {
         val slow = TrafficRouteIntelligence.RouteInput(
             routeId = "slow",
             baseDurationSeconds = 1_000,
-            trafficSegments = listOf(segment(60.0, 20.0)),
+            trafficSegments = listOf(segment(20.0, 60.0)),
         )
         val clear = TrafficRouteIntelligence.RouteInput(
             routeId = "clear",
@@ -64,7 +64,7 @@ class RouteTrafficIntelligenceTest {
         val route = TrafficRouteIntelligence.RouteInput(
             "r1",
             900,
-            listOf(segment(80.0, 100.0)),
+            listOf(segment(100.0, 80.0)),
         )
 
         val ranked = TrafficRouteIntelligence.rank(listOf(route))
