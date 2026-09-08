@@ -1,6 +1,6 @@
 package com.haritalar.app
 
-import android.app.AlertDialog
+import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
 import com.google.gson.JsonObject
@@ -101,15 +101,15 @@ class LiveNavigationPoiLayer {
             ?: "Diğer"
         val address = properties.get("address")?.asString?.takeIf { it.isNotBlank() }
         val message = buildString {
-            append("Kategori: ").append(category)
-            if (address != null) append("\n\nAdres: ").append(address)
-            append("\n\nKaynak: OpenStreetMap")
+            append(name).append(" • ").append(category)
+            if (address != null) append("\n").append(address)
+            append("\nOpenStreetMap")
         }
-        AlertDialog.Builder(MapLibre.getInstance().getApplicationContext())
-            .setTitle(name)
-            .setMessage(message)
-            .setPositiveButton("Kapat", null)
-            .show()
+        Toast.makeText(
+            MapLibre.getInstance().getApplicationContext(),
+            message,
+            Toast.LENGTH_LONG,
+        ).show()
     }
 
     fun scheduleRefresh(bounds: LatLngBounds?) {
