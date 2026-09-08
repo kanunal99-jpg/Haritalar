@@ -18,6 +18,7 @@ import com.haritalar.core.safety.Confidence
 import com.haritalar.core.safety.DataSource
 import com.haritalar.core.safety.SafetyAlert
 import com.haritalar.core.safety.SafetyPoint
+import com.haritalar.core.safety.SafetyPointDeduplicator
 import com.haritalar.core.safety.SafetyPointType
 import com.haritalar.core.safety.SafetyRouteAlertCoordinator
 import org.json.JSONArray
@@ -85,7 +86,8 @@ object SafetyAlertLifecycleBridge {
                 if (g != generation) return@execute
                 handler.post {
                     if (g != generation) return@post
-                    tracked = coordinator.trackPoints(route.map { SafetyRouteAlertCoordinator.RoutePoint(it.first, it.second) }, cumulative, points)
+                    val deduplicated = SafetyPointDeduplicator.deduplicate(points)
+                    tracked = coordinator.trackPoints(route.map { SafetyRouteAlertCoordinator.RoutePoint(it.first, it.second) }, cumulative, deduplicated)
                 }
             }
         }
@@ -108,11 +110,11 @@ object SafetyAlertLifecycleBridge {
                 writeCache(context, live)
                 live
             } else {
-                cached.ifEmpty { SafetyOfflinePackageLoader.pointsForRoute(context, route) }
+                cached.ifEmpty { loadOfflinePackage(context, route) }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Live safety data unavailable; using fallback", e)
-            cached.ifEmpty { SafetyOfflinePackageLoader.pointsForRoute(context, route) }
+            cached.ifEmpty { loadOfflinePackage(context, route) }
         }
     }
 
@@ -175,7 +177,6 @@ object SafetyAlertLifecycleBridge {
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("points", a.toString()).putLong("time", System.currentTimeMillis()).apply()
     }
 
-    /** Offline data is parsed and trust-validated by SafetyOfflinePackageLoader before use. */
     private fun loadOfflinePackage(c: Context, route: List<Pair<Double, Double>>): List<SafetyPoint> = SafetyOfflinePackageLoader.pointsForRoute(c, route)
 
     private fun parse(a: JSONArray) = buildList<SafetyPoint> {
