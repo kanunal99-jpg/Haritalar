@@ -13,30 +13,58 @@ class SafetyReportSyncTest {
     )
 
     @Test
-    fun onlyAcknowledgedIdsRemainAcknowledged() {
+    fun onlyAcknowledgedIdsAreRemovedFromQueue() {
         val reports = listOf(report("accepted-1"), report("accepted-2"), report("pending-1"))
-        val result = SafetyReportSyncResult(setOf("accepted-1", "accepted-2"))
-        val remaining = reports.filterNot { it.id in result.acknowledgedIds }
 
-        assertEquals(setOf("accepted-1", "accepted-2"), result.acknowledgedIds)
+        val remaining = SafetyReportQueue.acknowledge(
+            reports,
+            acknowledgedIds = setOf("accepted-1", "accepted-2"),
+        )
+
         assertEquals(listOf("pending-1"), remaining.map { it.id })
     }
 
     @Test
-    fun noOpProviderAcknowledgesNothing() {
+    fun noOpProviderLeavesEveryReportQueued() {
         val reports = listOf(report("one"), report("two"))
         val result = NoOpSafetyReportSyncProvider.sync(reports)
 
+        val remaining = SafetyReportQueue.acknowledge(reports, result.acknowledgedIds)
+
         assertEquals(emptySet(), result.acknowledgedIds)
-        assertEquals(reports.map { it.id }, reports.filterNot { it.id in result.acknowledgedIds }.map { it.id })
+        assertEquals(reports.map { it.id }, remaining.map { it.id })
     }
 
     @Test
     fun unknownIdsDoNotRemoveQueuedReports() {
         val reports = listOf(report("one"), report("two"))
-        val result = SafetyReportSyncResult(setOf("remote-only"))
-        val remaining = reports.filterNot { it.id in result.acknowledgedIds }
+
+        val remaining = SafetyReportQueue.acknowledge(
+            reports,
+            acknowledgedIds = setOf("remote-only"),
+        )
 
         assertEquals(reports.map { it.id }, remaining.map { it.id })
+    }
+
+    @Test
+    fun emptyAcknowledgementDoesNotMutateQueue() {
+        val reports = listOf(report("one"), report("two"))
+
+        val remaining = SafetyReportQueue.acknowledge(reports, emptySet())
+
+        assertEquals(reports, remaining)
+    }
+
+    @Test
+    fun duplicateAndBlankAcknowledgementsAreHarmless() {
+        val reports = listOf(report("one"), report("two"), report("three"))
+
+        val remaining = SafetyReportQueue.acknowledge(
+            reports,
+            acknowledgedIds = listOf(" one ", "one", "", "   ", "three"),
+        )
+
+        assertEquals(listOf("two"), remaining.map { it.id })
     }
 }
