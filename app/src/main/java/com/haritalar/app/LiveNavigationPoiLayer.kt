@@ -9,7 +9,6 @@ import com.haritalar.core.navigation.OsmPoiQuery
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
@@ -66,24 +65,22 @@ class LiveNavigationPoiLayer {
             )
         }
         if (style.getLayer(LABEL_LAYER_ID) == null) {
-            style.addLayer(
-                SymbolLayer(LABEL_LAYER_ID, SOURCE_ID).withProperties(
-                    textField(Expression.get("name")),
-                    textSize(11f),
-                    textAllowOverlap(false),
-                    textIgnorePlacement(false),
-                    iconAllowOverlap(false),
-                ),
-            )
+            SymbolLayer(LABEL_LAYER_ID, SOURCE_ID).withProperties(
+                textField(org.maplibre.android.style.expressions.Expression.get("name")),
+                textSize(11f),
+                textAllowOverlap(false),
+                textIgnorePlacement(false),
+                iconAllowOverlap(false),
+            ).also(style::addLayer)
         }
     }
 
     fun scheduleRefresh(bounds: LatLngBounds?) {
-        if (bounds == null) return
-        val south = bounds.latSouth
-        val north = bounds.latNorth
-        val west = bounds.lonWest
-        val east = bounds.lonEast
+        if (bounds == null || bounds.isEmptySpan) return
+        val south = bounds.latitudeSouth
+        val north = bounds.latitudeNorth
+        val west = bounds.longitudeWest
+        val east = bounds.longitudeEast
         val key = "%.3f,%.3f,%.3f,%.3f".format(south, west, north, east)
         if (key == lastBoundsKey) return
         lastBoundsKey = key
@@ -117,7 +114,7 @@ class LiveNavigationPoiLayer {
                 val pois = OsmPoiParser.parse(body, MAX_RESULTS)
                 mainHandler.post { updateSource(pois) }
             } catch (_: Exception) {
-                // Keep the last successful POI set on transient network/provider errors.
+                // Keep the last successful POI set on transient provider/network errors.
             }
         }
     }
@@ -131,7 +128,10 @@ class LiveNavigationPoiLayer {
                 addProperty("category", poi.category.name)
                 addProperty("address", poi.address ?: "")
             }
-            Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude), properties)
+            Feature.fromGeometry(
+                Point.fromLngLat(poi.longitude, poi.latitude),
+                properties,
+            )
         }
         source.setGeoJson(FeatureCollection.fromFeatures(features.toTypedArray()))
     }
