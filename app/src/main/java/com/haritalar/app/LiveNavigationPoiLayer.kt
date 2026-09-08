@@ -38,6 +38,8 @@ class LiveNavigationPoiLayer {
         const val SOURCE_ID = "haritalar-live-poi-source"
         const val CIRCLE_LAYER_ID = "haritalar-live-poi-circles"
         const val LABEL_LAYER_ID = "haritalar-live-poi-labels"
+        private const val SELECTED_SOURCE_ID = "haritalar-live-poi-selected-source"
+        private const val SELECTED_LAYER_ID = "haritalar-live-poi-selected"
         private const val DEBOUNCE_MS = 900L
         private const val MIN_REFRESH_MS = 5_000L
         private const val MAX_RESULTS = 300
@@ -65,7 +67,7 @@ class LiveNavigationPoiLayer {
             arrayOf(CIRCLE_LAYER_ID, LABEL_LAYER_ID),
         )
         val feature = features.firstOrNull() ?: return@OnMapClickListener false
-        showPoiDetails(feature)
+        selectPoi(feature)
         true
     }
 
@@ -73,6 +75,9 @@ class LiveNavigationPoiLayer {
         this.map = map
         if (style.getSource(SOURCE_ID) == null) {
             style.addSource(GeoJsonSource(SOURCE_ID, FeatureCollection.fromFeatures(emptyArray())))
+        }
+        if (style.getSource(SELECTED_SOURCE_ID) == null) {
+            style.addSource(GeoJsonSource(SELECTED_SOURCE_ID, FeatureCollection.fromFeatures(emptyArray())))
         }
         if (style.getLayer(CIRCLE_LAYER_ID) == null) {
             style.addLayer(
@@ -82,6 +87,17 @@ class LiveNavigationPoiLayer {
                     circleOpacity(0.9f),
                     circleStrokeColor("#FFFFFF"),
                     circleStrokeWidth(2f),
+                ),
+            )
+        }
+        if (style.getLayer(SELECTED_LAYER_ID) == null) {
+            style.addLayer(
+                CircleLayer(SELECTED_LAYER_ID, SELECTED_SOURCE_ID).withProperties(
+                    circleRadius(13f),
+                    circleColor("#FF9800"),
+                    circleOpacity(0.28f),
+                    circleStrokeColor("#FF9800"),
+                    circleStrokeWidth(3f),
                 ),
             )
         }
@@ -98,7 +114,7 @@ class LiveNavigationPoiLayer {
         map.addOnMapClickListener(mapClickListener)
     }
 
-    private fun showPoiDetails(feature: Feature) {
+    private fun selectPoi(feature: Feature) {
         val properties = feature.properties() ?: return
         val name = properties.get("name")?.asString?.takeIf { it.isNotBlank() } ?: "Harita noktası"
         val category = properties.get("category")?.asString
@@ -110,6 +126,11 @@ class LiveNavigationPoiLayer {
         val message = buildString {
             append(name).append(" • ").append(category)
             if (address != null) append(" • ").append(address)
+        }
+        val style = map?.style
+        val selectedSource = style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource
+        if (selectedSource != null) {
+            selectedSource.setGeoJson(FeatureCollection.fromFeatures(arrayOf(feature)))
         }
         Log.i(TAG, "POI seçildi: $message")
     }
