@@ -46,7 +46,7 @@ object TrafficRouteMatcher {
             }
 
             TrafficRouteSegment(
-                distanceMeters = matchedDistanceMeters(segment.geometry),
+                distanceMeters = matchedDistanceMeters(route, segment.geometry, toleranceMeters),
                 traffic = segment,
             )
         }
@@ -81,8 +81,24 @@ object TrafficRouteMatcher {
         return bestBearing
     }
 
-    private fun matchedDistanceMeters(geometry: List<GeoCoordinate>): Double =
-        geometry.zipWithNext().sumOf { (a, b) -> haversineMeters(a, b) }.coerceAtLeast(1.0)
+    /**
+     * Counts only provider-geometry length that is supported by the route.
+     * This prevents a long unrelated tail from inflating the traffic weight
+     * after the minimum overlap check has passed.
+     */
+    private fun matchedDistanceMeters(
+        route: List<GeoCoordinate>,
+        geometry: List<GeoCoordinate>,
+        toleranceMeters: Double,
+    ): Double {
+        val matched = geometry.map { point ->
+            route.zipWithNext().any { (a, b) -> pointToSegmentDistanceMeters(point, a, b) <= toleranceMeters }
+        }
+        val matchedLength = geometry.zipWithNext().mapIndexed { index, (a, b) ->
+            if (matched[index] && matched[index + 1]) haversineMeters(a, b) else 0.0
+        }.sum()
+        return matchedLength.coerceAtLeast(1.0)
+    }
 
     private fun pointToSegmentDistanceMeters(
         point: GeoCoordinate,
