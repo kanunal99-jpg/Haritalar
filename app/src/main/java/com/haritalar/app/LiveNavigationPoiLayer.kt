@@ -8,6 +8,8 @@ import com.google.gson.JsonObject
 import com.haritalar.core.navigation.NavigationPoi
 import com.haritalar.core.navigation.OsmPoiParser
 import com.haritalar.core.navigation.OsmPoiQuery
+import org.maplibre.android.annotations.Marker
+import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
@@ -53,6 +55,7 @@ class LiveNavigationPoiLayer {
     private var refreshRunnable: Runnable? = null
     private var lastRefreshAt = 0L
     private var lastBoundsKey: String? = null
+    private var selectedMarker: Marker? = null
 
     private val mapClickListener = MapLibreMap.OnMapClickListener { point ->
         val currentMap = map ?: return@OnMapClickListener false
@@ -123,14 +126,35 @@ class LiveNavigationPoiLayer {
             ?.replaceFirstChar { it.titlecase() }
             ?: "Diğer"
         val address = properties.get("address")?.asString?.takeIf { it.isNotBlank() }
+        val openingHours = properties.get("opening_hours")?.asString?.takeIf { it.isNotBlank() }
         val message = buildString {
             append(name).append(" • ").append(category)
             if (address != null) append(" • ").append(address)
+            if (openingHours != null) append(" • ").append(openingHours)
         }
         val style = map?.style
         val selectedSource = style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource
         if (selectedSource != null) {
             selectedSource.setGeoJson(FeatureCollection.fromFeatures(arrayOf(feature)))
+        }
+
+        val point = feature.geometry() as? Point
+        val currentMap = map
+        if (point != null && currentMap != null) {
+            selectedMarker?.remove()
+            val snippet = buildString {
+                append(category)
+                if (address != null) append("\n$address")
+                if (openingHours != null) append("\nSaatler: $openingHours")
+                append("\n\nBuraya git")
+            }
+            selectedMarker = currentMap.addMarker(
+                MarkerOptions()
+                    .position(org.maplibre.android.geometry.LatLng(point.latitude(), point.longitude()))
+                    .title(name)
+                    .snippet(snippet),
+            )
+            selectedMarker?.let(currentMap::selectMarker)
         }
         Log.i(TAG, "POI seçildi: $message")
     }
@@ -187,6 +211,7 @@ class LiveNavigationPoiLayer {
                 addProperty("name", poi.name)
                 addProperty("category", poi.category.name)
                 addProperty("address", poi.address ?: "")
+                addProperty("opening_hours", poi.openingHours ?: "")
             }
             Feature.fromGeometry(
                 Point.fromLngLat(poi.longitude, poi.latitude),
@@ -199,6 +224,8 @@ class LiveNavigationPoiLayer {
     fun destroy() {
         refreshRunnable?.let(mainHandler::removeCallbacks)
         map?.removeOnMapClickListener(mapClickListener)
+        selectedMarker?.remove()
+        selectedMarker = null
         executor.shutdownNow()
         map = null
     }
