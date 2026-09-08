@@ -12,18 +12,29 @@ import java.net.URLEncoder
  * The provider is deliberately inert when no API key is supplied. It never
  * fabricates traffic and it never scrapes the TomTom web site. Route sampling
  * is bounded so a GPS update cannot turn into an unbounded request burst.
+ * Successful segment responses are cached briefly by sample coordinate so
+ * navigation refreshes do not repeatedly request the same flow points.
  */
 class TomTomTrafficProvider(
     private val apiKey: String,
     private val httpClient: TomTomTrafficHttpClient = UrlConnectionTomTomTrafficHttpClient(),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     private val maxSamples: Int = DEFAULT_MAX_SAMPLES,
+    private val cacheTtlMs: Long = DEFAULT_CACHE_TTL_MS,
 ) : TrafficProvider {
+    private data class CachedSegment(val segment: TrafficSegment, val expiresAtEpochMs: Long)
+
+    private val cache = mutableMapOf<SampleKey, CachedSegment>()
+    private val cacheLock = Any()
+
+    private data class SampleKey(val latitudeE6: Int, val longitudeE6: Int)
+
     companion object {
         const val ID = "tomtom-flow"
         const val PRIORITY = 100
         const val DEFAULT_MAX_SAMPLES = 8
         private const val DEFAULT_TTL_MS = 60_000L
+        const val DEFAULT_CACHE_TTL_MS = 30_000L
         private const val FLOW_ENDPOINT = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json"
 
         private fun validCoordinate(coordinate: GeoCoordinate): Boolean =
@@ -39,6 +50,7 @@ class TomTomTrafficProvider(
 
     override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?): TrafficSnapshot {
         require(apiKey.isNotBlank()) { "TomTom API key is required" }
+        require(cacheTtlMs >= 0L) { "cacheTtlMs must not be negative" }
 
         val points = (route?.coordinates.orEmpty().ifEmpty {
             listOf(
@@ -54,9 +66,22 @@ class TomTomTrafficProvider(
         val fetchedAt = nowEpochMs()
         require(fetchedAt > 0L) { "Invalid observation timestamp" }
         val segments = points.mapNotNull { point ->
-            runCatching { httpClient.fetch(point, apiKey, FLOW_ENDPOINT) }
+            val key = SampleKey(
+                latitudeE6 = (point.latitude * 1_000_000.0).roundToIntSafely(),
+                longitudeE6 = (point.longitude * 1_000_000.0).roundToIntSafely(),
+            )
+            val cached = synchronized(cacheLock) {
+                cache[key]?.takeIf { it.expiresAtEpochMs > fetchedAt }?.segment
+            }
+            cached ?: runCatching { httpClient.fetch(point, apiKey, FLOW_ENDPOINT) }
                 .getOrNull()
                 ?.let { parseSegment(it, point) }
+                ?.also { segment ->
+                    synchronized(cacheLock) {
+                        cache[key] = CachedSegment(segment, fetchedAt + cacheTtlMs)
+                        cache.entries.removeIf { entry -> entry.value.expiresAtEpochMs <= fetchedAt }
+                    }
+                }
         }
 
         return TrafficSnapshot(
@@ -115,6 +140,9 @@ class TomTomTrafficProvider(
         )
     }
 }
+
+private fun Double.roundToIntSafely(): Int =
+    coerceIn(Int.MIN_VALUE.toDouble(), Int.MAX_VALUE.toDouble()).toInt()
 
 interface TomTomTrafficHttpClient {
     fun fetch(point: GeoCoordinate, apiKey: String, endpoint: String): String
