@@ -1,6 +1,12 @@
 package com.haritalar.core.traffic
 
 import com.haritalar.core.navigation.GeoCoordinate
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 
 /**
  * Fetches at most one verified traffic snapshot for a route set and applies it
@@ -38,6 +44,40 @@ class TrafficRouteRankingService(
         )
     }
 
+    /**
+     * Blocking bridge for existing Android UI code that already owns a
+     * background executor. Never call this from the main thread.
+     *
+     * The bridge keeps the suspend implementation as the single source of
+     * truth and adds a bounded wait so a broken provider cannot leave a worker
+     * blocked forever.
+     */
+    fun rankBlocking(
+        routes: List<TrafficRouteRanking.RouteCandidate>,
+        nowEpochMs: Long = System.currentTimeMillis(),
+        timeoutMs: Long = DEFAULT_BLOCKING_TIMEOUT_MS,
+    ): List<TrafficRouteRanking.RankedCandidate> {
+        require(timeoutMs > 0L) { "timeoutMs must be positive" }
+
+        val completed = CountDownLatch(1)
+        val result = AtomicReference<Result<List<TrafficRouteRanking.RankedCandidate>>?>()
+
+        rank(routes, nowEpochMs).startCoroutine(object : Continuation<List<TrafficRouteRanking.RankedCandidate>> {
+            override val context = EmptyCoroutineContext
+
+            override fun resumeWith(value: Result<List<TrafficRouteRanking.RankedCandidate>>) {
+                result.set(value)
+                completed.countDown()
+            }
+        })
+
+        if (!completed.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw IllegalStateException("Traffic ranking timed out after ${timeoutMs}ms")
+        }
+        return result.get()?.getOrThrow()
+            ?: throw IllegalStateException("Traffic ranking completed without a result")
+    }
+
     private fun withoutTraffic(route: TrafficRouteRanking.RouteCandidate) =
         TrafficRouteRanking.RankedCandidate(
             routeId = route.routeId,
@@ -57,4 +97,8 @@ class TrafficRouteRankingService(
     private fun validCoordinate(coordinate: GeoCoordinate): Boolean =
         coordinate.latitude.isFinite() && coordinate.longitude.isFinite() &&
             coordinate.latitude in -90.0..90.0 && coordinate.longitude in -180.0..180.0
+
+    private companion object {
+        const val DEFAULT_BLOCKING_TIMEOUT_MS = 120_000L
+    }
 }
