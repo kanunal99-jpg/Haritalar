@@ -3,6 +3,7 @@ package com.haritalar.core.navigation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RoutePlanningModelsTest {
@@ -59,5 +60,30 @@ class RoutePlanningModelsTest {
         val free = RouteToll(hasToll = false)
 
         assertEquals("Ücretsiz geçiş tespit edilmedi", RouteAlternativeRanker.tollLabel(free))
+    }
+
+    @Test
+    fun `ferry cost remains unknown when provider gives no verified amount`() {
+        val ferry = RouteFerry(used = true)
+        val costs = RouteCostSummary(toll = RouteToll(hasToll = false), ferry = ferry)
+
+        assertNull(costs.knownTotalTry)
+        assertTrue(costs.hasUnknownCost)
+        assertEquals("Feribot • ücret doğrulanamadı", RouteAlternativeRanker.ferryLabel(ferry))
+    }
+
+    @Test
+    fun `combined known toll and ferry costs are summed`() {
+        val costs = RouteCostSummary(
+            toll = RouteToll(hasToll = true, amountTry = 60.0),
+            ferry = RouteFerry(used = true, amountTry = 25.0),
+        )
+
+        assertEquals(85.0, costs.knownTotalTry!!, 0.0)
+        assertFalse(costs.hasUnknownCost)
+        assertEquals(
+            "Ücretli geçiş • 60,00 TL • Feribot • 25,00 TL",
+            RouteAlternativeRanker.costLabel(costs),
+        )
     }
 }
