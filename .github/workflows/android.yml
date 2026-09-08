@@ -32,6 +32,15 @@ jobs:
       - name: Unit tests
         run: gradle test --stacktrace
 
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: haritalar-unit-test-reports-${{ github.run_number }}
+          path: '**/build/test-results/**/*.xml'
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
