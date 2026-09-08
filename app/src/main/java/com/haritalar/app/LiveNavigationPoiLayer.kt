@@ -1,9 +1,8 @@
 package com.haritalar.app
 
-import android.content.Context
-import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.google.gson.JsonObject
 import com.haritalar.core.navigation.NavigationPoi
 import com.haritalar.core.navigation.OsmPoiParser
@@ -33,7 +32,7 @@ import java.net.URLEncoder
 import java.util.concurrent.Executors
 
 /** Bounded, throttled live OSM POI overlay. No paid provider or API key is required. */
-class LiveNavigationPoiLayer(private val context: Context) {
+class LiveNavigationPoiLayer {
     companion object {
         const val SOURCE_ID = "haritalar-live-poi-source"
         const val CIRCLE_LAYER_ID = "haritalar-live-poi-circles"
@@ -41,6 +40,7 @@ class LiveNavigationPoiLayer(private val context: Context) {
         private const val DEBOUNCE_MS = 900L
         private const val MIN_REFRESH_MS = 5_000L
         private const val MAX_RESULTS = 300
+        private const val TAG = "LiveNavigationPoi"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -103,10 +103,9 @@ class LiveNavigationPoiLayer(private val context: Context) {
         val address = properties.get("address")?.asString?.takeIf { it.isNotBlank() }
         val message = buildString {
             append(name).append(" • ").append(category)
-            if (address != null) append("\n").append(address)
-            append("\nOpenStreetMap")
+            if (address != null) append(" • ").append(address)
         }
-        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        Log.i(TAG, "POI seçildi: $message")
     }
 
     fun scheduleRefresh(bounds: LatLngBounds?) {
