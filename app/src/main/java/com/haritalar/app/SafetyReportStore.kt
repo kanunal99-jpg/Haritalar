@@ -22,7 +22,7 @@ object SafetyReportStore {
         val createdAtEpochMs: Long,
     )
 
-    /** Shared validation used by the queue and its JVM unit tests. */
+    /** Offline queue boundary: reject non-finite/out-of-range coordinates. */
     fun isValidCoordinate(latitude: Double, longitude: Double): Boolean =
         latitude.isFinite() && longitude.isFinite() &&
             latitude in -90.0..90.0 && longitude in -180.0..180.0
@@ -30,7 +30,14 @@ object SafetyReportStore {
     @Synchronized
     fun enqueue(context: Context, type: Type, latitude: Double, longitude: Double, pointId: String? = null): Report? {
         if (!isValidCoordinate(latitude, longitude)) return null
-        val report = Report(UUID.randomUUID().toString(), type, latitude, longitude, pointId, System.currentTimeMillis())
+        val report = Report(
+            UUID.randomUUID().toString(),
+            type,
+            latitude,
+            longitude,
+            pointId?.trim()?.takeIf { it.isNotEmpty() },
+            System.currentTimeMillis(),
+        )
         val current = read(context).toMutableList()
         current.add(report)
         while (current.size > MAX_QUEUE) current.removeAt(0)
@@ -41,24 +48,47 @@ object SafetyReportStore {
     fun pending(context: Context): List<Report> = read(context)
 
     private fun read(context: Context): List<Report> = runCatching {
-        val array = JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]"))
+        val array = JSONArray(
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]")
+        )
         buildList {
             for (i in 0 until array.length()) {
                 val o = array.getJSONObject(i)
                 val type = runCatching { Type.valueOf(o.getString("type")) }.getOrNull() ?: continue
-                add(Report(o.getString("id"), type, o.getDouble("lat"), o.getDouble("lon"), o.optString("pointId").takeIf { it.isNotBlank() }, o.getLong("createdAt")))
+                val id = o.optString("id").trim()
+                val lat = o.optDouble("lat", Double.NaN)
+                val lon = o.optDouble("lon", Double.NaN)
+                val createdAt = o.optLong("createdAt", 0L)
+                if (id.isEmpty() || !isValidCoordinate(lat, lon) || createdAt <= 0L) continue
+                add(
+                    Report(
+                        id = id,
+                        type = type,
+                        latitude = lat,
+                        longitude = lon,
+                        pointId = o.optString("pointId").trim().takeIf { it.isNotEmpty() },
+                        createdAtEpochMs = createdAt,
+                    )
+                )
             }
-        }
+        }.takeLast(MAX_QUEUE)
     }.getOrDefault(emptyList())
 
     private fun write(context: Context, reports: List<Report>) {
         val array = JSONArray()
-        reports.forEach { r ->
+        reports.takeLast(MAX_QUEUE).forEach { r ->
             array.put(JSONObject().apply {
-                put("id", r.id); put("type", r.type.name); put("lat", r.latitude); put("lon", r.longitude)
-                r.pointId?.let { put("pointId", it) }; put("createdAt", r.createdAtEpochMs)
+                put("id", r.id)
+                put("type", r.type.name)
+                put("lat", r.latitude)
+                put("lon", r.longitude)
+                r.pointId?.let { put("pointId", it) }
+                put("createdAt", r.createdAtEpochMs)
             })
         }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, array.toString()).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY, array.toString())
+            .apply()
     }
 }
