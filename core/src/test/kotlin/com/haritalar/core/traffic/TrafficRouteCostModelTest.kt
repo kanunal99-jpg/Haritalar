@@ -34,4 +34,13 @@ class TrafficRouteCostModelTest {
         val traffic = TrafficSegment("a", speedKmh = 80.0, freeFlowSpeedKmh = 60.0)
         assertEquals(600L, TrafficRouteCostModel.adjustedDurationSeconds(600L, listOf(TrafficRouteSegment(1_000.0, traffic))))
     }
+
+    @Test
+    fun penalizesClosedSegmentEvenWithoutSpeedData() {
+        val closed = TrafficSegment("closed", closure = true)
+        assertEquals(3_600L, TrafficRouteCostModel.adjustedDurationSeconds(
+            600L,
+            listOf(TrafficRouteSegment(1_000.0, closed)),
+        ))
+    }
 }
