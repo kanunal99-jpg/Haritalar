@@ -23,6 +23,7 @@ class TomTomTrafficProvider(
         const val ID = "tomtom-flow"
         const val PRIORITY = 100
         const val DEFAULT_MAX_SAMPLES = 8
+        private const val DEFAULT_TTL_MS = 60_000L
         private const val FLOW_ENDPOINT = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json"
 
         private fun validCoordinate(coordinate: GeoCoordinate): Boolean =
@@ -62,7 +63,6 @@ class TomTomTrafficProvider(
             providerId = id,
             segments = segments,
             fetchedAtEpochMs = fetchedAt,
-            // The provider is queried on demand; callers still apply their own refresh/cooldown policy.
             expiresAtEpochMs = fetchedAt + DEFAULT_TTL_MS,
             confidence = if (segments.isNotEmpty()) TrafficConfidence.HIGH else TrafficConfidence.LOW,
         )
@@ -72,7 +72,7 @@ class TomTomTrafficProvider(
         if (points.size <= maxSamples) return points.distinct()
         val count = maxSamples.coerceAtLeast(1)
         return (0 until count).map { index ->
-            val sourceIndex = index * (points.lastIndex) / (count - 1).coerceAtLeast(1)
+            val sourceIndex = index * points.lastIndex / (count - 1).coerceAtLeast(1)
             points[sourceIndex]
         }.distinct()
     }
@@ -113,10 +113,6 @@ class TomTomTrafficProvider(
             confidence = TrafficConfidence.HIGH,
             geometry = geometry,
         )
-    }
-
-    private companion object {
-        const val DEFAULT_TTL_MS = 60_000L
     }
 }
 
