@@ -1,7 +1,9 @@
 package com.haritalar.core.traffic
 
 import com.haritalar.core.navigation.GeoCoordinate
-import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -11,29 +13,27 @@ class TrafficProviderChainTest {
     private val bounds = TrafficBounds(40.9, 28.9, 41.1, 29.1)
 
     @Test
-    fun selectsHighestPrioritySupportedLiveProvider() = runTest {
+    fun selectsHighestPrioritySupportedLiveProvider() {
         val low = FakeProvider("low", 10, TrafficSnapshot("low", emptyList(), 1, 10_000, TrafficConfidence.MEDIUM))
         val high = FakeProvider("high", 20, TrafficSnapshot("high", emptyList(), 1, 10_000, TrafficConfidence.HIGH))
         val chain = TrafficProviderChain(listOf(low, high))
-
-        assertEquals("high", chain.fetch(coordinate, bounds, null, 100)?.providerId)
+        assertEquals("high", runSuspend { chain.fetch(coordinate, bounds, null, 100) }?.providerId)
     }
 
     @Test
-    fun skipsExpiredLiveDataAndUsesCache() = runTest {
+    fun skipsExpiredLiveDataAndUsesCache() {
         val live = FakeProvider("live", 100, TrafficSnapshot("live", emptyList(), 1, 50, TrafficConfidence.HIGH))
         val cached = TrafficSnapshot("cache", emptyList(), 1, 10_000, TrafficConfidence.MEDIUM)
         val chain = TrafficProviderChain(listOf(live), object : TrafficCacheProvider {
             override suspend fun fetchCached(bounds: TrafficBounds, route: TrafficRoute?) = cached
         })
-
-        assertEquals("cache", chain.fetch(coordinate, bounds, null, 100)?.providerId)
+        assertEquals("cache", runSuspend { chain.fetch(coordinate, bounds, null, 100) }?.providerId)
     }
 
     @Test
-    fun returnsNullWhenNothingCanProvideData() = runTest {
+    fun returnsNullWhenNothingCanProvideData() {
         val chain = TrafficProviderChain(emptyList())
-        assertNull(chain.fetch(coordinate, bounds, null, 100))
+        assertNull(runSuspend { chain.fetch(coordinate, bounds, null, 100) })
     }
 
     private class FakeProvider(
@@ -43,5 +43,14 @@ class TrafficProviderChainTest {
     ) : TrafficProvider {
         override fun supports(coordinate: GeoCoordinate) = true
         override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?) = snapshot
+    }
+
+    private fun <T> runSuspend(block: suspend () -> T): T {
+        var result: Result<T>? = null
+        block.startCoroutine(object : Continuation<T> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(value: Result<T>) { result = value }
+        })
+        return result!!.getOrThrow()
     }
 }
