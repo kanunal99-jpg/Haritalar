@@ -18,11 +18,21 @@ object SafetyOfflinePackageValidator {
     private const val SUPPORTED_VERSION = 1
     private const val MAX_REGIONS = 1000
     private const val MAX_POINTS_PER_REGION = 10_000
+    private const val MAX_TOTAL_POINTS = 100_000
 
     fun validate(pkg: SafetyOfflinePackage): Boolean {
         if (pkg.version != SUPPORTED_VERSION) return false
         if (pkg.regions.size > MAX_REGIONS) return false
+        if (pkg.regions.map { it.id.trim() }.filter(String::isNotEmpty).distinct().size != pkg.regions.size) return false
+        val totalPoints = pkg.regions.sumOf { it.points.size.toLong() }
+        if (totalPoints > MAX_TOTAL_POINTS) return false
         if (pkg.regions.any { !validRegion(it) }) return false
+        val pointIds = HashSet<String>(totalPoints.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+        for (region in pkg.regions) {
+            for (point in region.points) {
+                if (!pointIds.add(point.id.trim())) return false
+            }
+        }
         return true
     }
 
@@ -44,6 +54,7 @@ object SafetyOfflinePackageValidator {
         if (point.type == SafetyPointType.VERIFIED_TRAFFIC_CONTROL && point.confidence != Confidence.HIGH) return false
         val bearing = point.directionBearingDegrees
         if (bearing != null && (!bearing.isFinite() || bearing < 0.0 || bearing >= 360.0)) return false
+        if (point.speedLimitKmh != null && point.speedLimitKmh <= 0) return false
         return true
     }
 }
