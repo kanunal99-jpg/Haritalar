@@ -41,7 +41,7 @@ object RouteTrafficIntelligence {
     private fun hasUsableTraffic(segment: TrafficSegment): Boolean {
         // A verified closure is actionable even when the provider has no speed
         // data and therefore uses the model's closure penalty.
-        if (segment.closure) return segment.confidence != TrafficConfidence.LOW || segment.id.isNotBlank()
+        if (segment.closure) return true
         if (segment.confidence == TrafficConfidence.LOW) return false
 
         val live = segment.speedKmh
