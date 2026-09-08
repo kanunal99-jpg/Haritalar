@@ -7,6 +7,7 @@ import com.google.gson.JsonObject
 import com.haritalar.core.navigation.NavigationPoi
 import com.haritalar.core.navigation.OsmPoiParser
 import com.haritalar.core.navigation.OsmPoiQuery
+import org.maplibre.android.MapLibre
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
@@ -104,18 +105,11 @@ class LiveNavigationPoiLayer {
             if (address != null) append("\n\nAdres: ").append(address)
             append("\n\nKaynak: OpenStreetMap")
         }
-        AlertDialog.Builder(mapViewContext())
+        AlertDialog.Builder(MapLibre.getInstance().getApplicationContext())
             .setTitle(name)
             .setMessage(message)
             .setPositiveButton("Kapat", null)
             .show()
-    }
-
-    private fun mapViewContext(): android.content.Context {
-        return map?.let { it }?.getStyle()?.let { _ ->
-            // MapLibreMap does not expose a Context; the style interaction itself is UI-thread bound.
-            null
-        } ?: throw IllegalStateException("Map is not attached")
     }
 
     fun scheduleRefresh(bounds: LatLngBounds?) {
