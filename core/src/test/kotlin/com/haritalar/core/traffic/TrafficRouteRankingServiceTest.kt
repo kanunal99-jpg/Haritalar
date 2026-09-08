@@ -18,7 +18,7 @@ class TrafficRouteRankingServiceTest {
 
     private val routeB = TrafficRouteRanking.RouteCandidate(
         routeId = "b",
-        coordinates = listOf(GeoCoordinate(41.0, 29.0), GeoCoordinate(41.02, 29.02)),
+        coordinates = listOf(GeoCoordinate(41.02, 29.0), GeoCoordinate(41.02, 29.02)),
         baseDurationSeconds = 2_700L,
     )
 
