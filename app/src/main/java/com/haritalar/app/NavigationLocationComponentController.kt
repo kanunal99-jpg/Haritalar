@@ -12,6 +12,10 @@ import org.maplibre.android.location.modes.RenderMode
  * while MainActivity can switch between browse and active-navigation tracking deterministically.
  */
 object NavigationLocationComponentController {
+    fun apply(component: LocationComponent, navigationActive: Boolean) {
+        apply(component, NavigationTrackingPolicy.modeFor(navigationActive))
+    }
+
     fun apply(component: LocationComponent, mode: NavigationTrackingPolicy.Mode) {
         val state = NavigationTrackingPolicy.stateFor(mode)
         component.cameraMode = when (state.cameraMode) {
