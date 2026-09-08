@@ -7,7 +7,10 @@ class NavigationTrackingPolicyTest {
     @Test
     fun browseKeepsMapFreeAndUsesGpsBearingWithoutFollowing() {
         assertEquals(
-            NavigationTrackingPolicy.State("NONE_GPS", "NORMAL"),
+            NavigationTrackingPolicy.State(
+                cameraMode = NavigationTrackingPolicy.CameraMode.NONE_GPS,
+                renderMode = NavigationTrackingPolicy.RenderMode.NORMAL,
+            ),
             NavigationTrackingPolicy.stateFor(NavigationTrackingPolicy.Mode.BROWSE),
         )
     }
@@ -15,7 +18,10 @@ class NavigationTrackingPolicyTest {
     @Test
     fun navigationFollowsGpsBearing() {
         assertEquals(
-            NavigationTrackingPolicy.State("TRACKING_GPS", "GPS"),
+            NavigationTrackingPolicy.State(
+                cameraMode = NavigationTrackingPolicy.CameraMode.TRACKING_GPS,
+                renderMode = NavigationTrackingPolicy.RenderMode.GPS,
+            ),
             NavigationTrackingPolicy.stateFor(NavigationTrackingPolicy.Mode.NAVIGATION),
         )
     }
