@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ScrollView
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -42,6 +43,9 @@ class HaritalarApplication : Application() {
         val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
         val root = content.getChildAt(0) ?: return
         val mapView = findView(root, MapView::class.java) ?: return
+
+        releaseHiddenRouteOverlay(root)
+
         mapView.getMapAsync { map ->
             map.uiSettings.setAllGesturesEnabled(true)
             map.uiSettings.isScrollGesturesEnabled = true
@@ -52,6 +56,29 @@ class HaritalarApplication : Application() {
             map.uiSettings.isRotateGesturesEnabled = true
             map.uiSettings.isTiltGesturesEnabled = true
             addRecenterButton(activity, root, map)
+        }
+    }
+
+    /**
+     * MainActivity keeps the route panel inside a weighted ScrollView. When the
+     * panel itself is GONE, that ScrollView can still occupy the whole upper UI
+     * and consume map touch events. Keep the parent hidden whenever its route
+     * panel is hidden so the map receives drag/zoom gestures everywhere else.
+     */
+    private fun releaseHiddenRouteOverlay(root: View) {
+        val routePanel = findViewByClassName(root, "com.haritalar.app.MainActivity")
+        if (routePanel != null) return
+
+        val scrollViews = mutableListOf<ScrollView>()
+        collectViews(root, ScrollView::class.java, scrollViews)
+        scrollViews.forEach { scroll ->
+            val child = scroll.getChildAt(0) ?: return@forEach
+            if (child is ViewGroup && child.visibility == View.GONE) {
+                scroll.visibility = View.GONE
+                child.viewTreeObserver.addOnGlobalLayoutListener {
+                    scroll.visibility = if (child.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+                }
+            }
         }
     }
 
@@ -95,6 +122,23 @@ class HaritalarApplication : Application() {
         if (root !is ViewGroup) return null
         for (index in 0 until root.childCount) {
             findView(root.getChildAt(index), type)?.let { return it }
+        }
+        return null
+    }
+
+    private fun <T : View> collectViews(root: View, type: Class<T>, result: MutableList<T>) {
+        if (type.isInstance(root)) result += type.cast(root)
+        if (root !is ViewGroup) return
+        for (index in 0 until root.childCount) {
+            collectViews(root.getChildAt(index), type, result)
+        }
+    }
+
+    private fun findViewByClassName(root: View, className: String): View? {
+        if (root.javaClass.name == className) return root
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findViewByClassName(root.getChildAt(index), className)?.let { return it }
         }
         return null
     }
