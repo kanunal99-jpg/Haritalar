@@ -3,11 +3,14 @@ package com.haritalar.core.safety
 /**
  * Deterministic, side-effect-free alert state machine.
  * The caller supplies the route distance to the next safety point.
+ *
+ * Safety-point approach alerts begin at 5,000 km and repeat every 500 km.
+ * The final 500 km alert is marked FINAL.
  */
 class SafetyAlertEngine(
-    private val firstAlertMeters: Int = 4_000,
-    private val intervalMeters: Int = 500,
-    private val finalAlertMeters: Int = 500,
+    private val firstAlertMeters: Int = 5_000_000,
+    private val intervalMeters: Int = 500_000,
+    private val finalAlertMeters: Int = 500_000,
     private val passThresholdMeters: Int = 25,
 ) {
     private val states = mutableMapOf<String, AlertState>()
