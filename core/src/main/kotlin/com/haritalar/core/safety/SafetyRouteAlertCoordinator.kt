@@ -19,6 +19,7 @@ import kotlin.math.sqrt
 class SafetyRouteAlertCoordinator(
     private val engine: SafetyAlertEngine = SafetyAlertEngine(),
     private val routeMatchToleranceMeters: Double = 80.0,
+    private val duplicatePointToleranceMeters: Double = 50.0,
 ) {
     data class RoutePoint(val latitude: Double, val longitude: Double)
 
@@ -33,7 +34,7 @@ class SafetyRouteAlertCoordinator(
         points: List<SafetyPoint>,
     ): List<TrackedPoint> {
         if (route.size < 2 || route.size != cumulativeMeters.size) return emptyList()
-        return points.mapNotNull { point ->
+        return deduplicate(points).mapNotNull { point ->
             if (point.source == DataSource.OFFLINE && !SafetyOfflinePackageValidator.isValidOfflinePoint(point)) {
                 return@mapNotNull null
             }
@@ -41,6 +42,27 @@ class SafetyRouteAlertCoordinator(
             if (projection.distanceMeters > routeMatchToleranceMeters) return@mapNotNull null
             TrackedPoint(point, projection.routeProgressMeters)
         }.sortedBy { it.routeProgressMeters }
+    }
+
+    /**
+     * Collapses records that describe the same safety point from different providers.
+     * The most authoritative record wins; different safety types remain distinct.
+     */
+    fun deduplicate(points: List<SafetyPoint>): List<SafetyPoint> {
+        if (points.size < 2) return points
+        val result = ArrayList<SafetyPoint>(points.size)
+        for (candidate in points) {
+            val duplicateIndex = result.indexOfFirst { existing ->
+                existing.type == candidate.type &&
+                    distanceMeters(existing.latitude, existing.longitude, candidate.latitude, candidate.longitude) <= duplicatePointToleranceMeters
+            }
+            if (duplicateIndex < 0) {
+                result += candidate
+            } else if (authority(candidate) > authority(result[duplicateIndex])) {
+                result[duplicateIndex] = candidate
+            }
+        }
+        return result
     }
 
     fun evaluate(
@@ -65,6 +87,21 @@ class SafetyRouteAlertCoordinator(
     }
 
     fun reset(pointId: String) = engine.reset(pointId)
+
+    private fun authority(point: SafetyPoint): Int {
+        val source = when (point.source) {
+            DataSource.LIVE -> 40
+            DataSource.CACHE -> 30
+            DataSource.OFFLINE -> 20
+            DataSource.USER_REPORT -> 10
+        }
+        val confidence = when (point.confidence) {
+            Confidence.HIGH -> 3
+            Confidence.MEDIUM -> 2
+            Confidence.LOW -> 1
+        }
+        return source * 10 + confidence
+    }
 
     private data class Projection(
         val routeProgressMeters: Double,
@@ -121,7 +158,7 @@ class SafetyRouteAlertCoordinator(
         return SegmentProjection(fraction, sqrt(cx * cx + cy * cy))
     }
 
-    private fun haversineMeters(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Double {
+    private fun distanceMeters(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Double {
         val earth = 6_371_000.0
         val dLat = Math.toRadians(bLat - aLat)
         val dLon = Math.toRadians(bLon - aLon)
@@ -130,6 +167,9 @@ class SafetyRouteAlertCoordinator(
         val h = sinSquared(dLat / 2) + cos(lat1) * cos(lat2) * sinSquared(dLon / 2)
         return earth * 2 * kotlin.math.atan2(sqrt(h), sqrt(max(0.0, 1.0 - h)))
     }
+
+    private fun haversineMeters(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Double =
+        distanceMeters(aLat, aLon, bLat, bLon)
 
     private fun sinSquared(value: Double) = kotlin.math.sin(value).pow(2)
 }
