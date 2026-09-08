@@ -5,7 +5,8 @@ package com.haritalar.core.traffic
  *
  * The router remains responsible for geometry; this class only changes the ETA
  * used for comparison. A route without usable traffic observations keeps its
- * provider ETA unchanged, so missing traffic never becomes invented traffic.
+ * provider ETA unchanged, so missing or low-confidence traffic never becomes
+ * invented traffic.
  */
 object RouteTrafficIntelligence {
     data class RouteInput(
@@ -23,22 +24,24 @@ object RouteTrafficIntelligence {
 
     fun rank(routes: List<RouteInput>): List<RankedRoute> = routes
         .map { route ->
+            val usableSegments = route.trafficSegments.filter { hasUsableTraffic(it.traffic) }
             val adjusted = TrafficRouteCostModel.adjustedDurationSeconds(
                 route.baseDurationSeconds,
-                route.trafficSegments,
+                usableSegments,
             )
             RankedRoute(
                 routeId = route.routeId,
                 baseDurationSeconds = route.baseDurationSeconds,
                 adjustedDurationSeconds = adjusted,
-                trafficApplied = route.trafficSegments.any { hasUsableSpeed(it.traffic) },
+                trafficApplied = usableSegments.isNotEmpty(),
             )
         }
         .sortedWith(compareBy<RankedRoute> { it.adjustedDurationSeconds }.thenBy { it.baseDurationSeconds }.thenBy { it.routeId })
 
-    private fun hasUsableSpeed(segment: TrafficSegment): Boolean {
+    private fun hasUsableTraffic(segment: TrafficSegment): Boolean {
         val live = segment.speedKmh
         val freeFlow = segment.freeFlowSpeedKmh
+        if (segment.confidence == TrafficConfidence.LOW) return false
         return live != null && freeFlow != null && live > 0.0 && freeFlow > 0.0
     }
 }
