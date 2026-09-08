@@ -19,7 +19,7 @@ class RouteTrafficIntelligenceTest {
             trafficSegments = listOf(segment(60.0, 60.0)),
         )
 
-        val ranked = RouteTrafficIntelligence.rank(listOf(slow, clear))
+        val ranked = TrafficRouteIntelligence.rank(listOf(slow, clear))
 
         assertEquals(listOf("clear", "slow"), ranked.map { it.routeId })
         assertTrue(ranked.first().trafficApplied)
@@ -29,7 +29,31 @@ class RouteTrafficIntelligenceTest {
     @Test
     fun `missing traffic does not change eta`() {
         val route = TrafficRouteIntelligence.RouteInput("r1", 900)
-        val ranked = RouteTrafficIntelligence.rank(listOf(route))
+        val ranked = TrafficRouteIntelligence.rank(listOf(route))
+
+        assertEquals(900, ranked.single().adjustedDurationSeconds)
+        assertFalse(ranked.single().trafficApplied)
+    }
+
+    @Test
+    fun `low confidence traffic does not change eta`() {
+        val route = TrafficRouteIntelligence.RouteInput(
+            "r1",
+            900,
+            listOf(
+                TrafficRouteSegment(
+                    distanceMeters = 1_000.0,
+                    traffic = TrafficSegment(
+                        id = "low-confidence",
+                        speedKmh = 10.0,
+                        freeFlowSpeedKmh = 60.0,
+                        confidence = TrafficConfidence.LOW,
+                    ),
+                ),
+            ),
+        )
+
+        val ranked = TrafficRouteIntelligence.rank(listOf(route))
 
         assertEquals(900, ranked.single().adjustedDurationSeconds)
         assertFalse(ranked.single().trafficApplied)
@@ -43,7 +67,7 @@ class RouteTrafficIntelligenceTest {
             listOf(segment(80.0, 100.0)),
         )
 
-        val ranked = RouteTrafficIntelligence.rank(listOf(route))
+        val ranked = TrafficRouteIntelligence.rank(listOf(route))
 
         assertEquals(900, ranked.single().adjustedDurationSeconds)
         assertTrue(ranked.single().trafficApplied)
