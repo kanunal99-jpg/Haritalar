@@ -8,6 +8,7 @@ import android.location.Location
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -28,11 +29,13 @@ import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.*
 
-/** Route safety integration: live OSM/Overpass -> cache -> silent safe default. */
+/** Route safety integration: live OSM/Overpass -> cache -> offline package -> silent safe default. */
 object SafetyAlertLifecycleBridge {
+    private const val TAG = "SafetyAlertBridge"
     private const val ENDPOINT = "https://overpass-api.de/api/interpreter"
     private const val PREFS = "haritalar_safety_cache"
     private const val CACHE_TTL = 30 * 60 * 1000L
+    private const val MIN_LIVE_FETCH_GAP = 60 * 1000L
     private const val POLL_MS = 1000L
     private const val ALERT_VISIBLE_MS = 7000L
     private val handler = Handler(Looper.getMainLooper())
@@ -99,11 +102,27 @@ object SafetyAlertLifecycleBridge {
 
     private fun loadPoints(context: Context, route: List<Pair<Double, Double>>): List<SafetyPoint> {
         val cached = readCache(context)
-        return try { fetch(route).also { if (it.isNotEmpty()) writeCache(context, it) }.ifEmpty { cached } }
-        catch (_: Exception) { cached }
+        return try {
+            val live = if (canFetchLive(context)) fetch(context, route) else emptyList()
+            if (live.isNotEmpty()) {
+                writeCache(context, live)
+                live
+            } else {
+                cached.ifEmpty { loadOfflinePackage(context, route) }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Live safety data unavailable; using fallback", e)
+            cached.ifEmpty { loadOfflinePackage(context, route) }
+        }
     }
 
-    private fun fetch(route: List<Pair<Double, Double>>): List<SafetyPoint> {
+    private fun canFetchLive(context: Context): Boolean {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val last = p.getLong("last_live_fetch", 0L)
+        return System.currentTimeMillis() - last >= MIN_LIVE_FETCH_GAP
+    }
+
+    private fun fetch(context: Context, route: List<Pair<Double, Double>>): List<SafetyPoint> {
         val south = route.minOf { it.first } - .002; val north = route.maxOf { it.first } + .002
         val west = route.minOf { it.second } - .002; val east = route.maxOf { it.second } + .002
         val q = "[out:json][timeout:20];(node[\"highway\"=\"speed_camera\"]($south,$west,$north,$east);node[\"highway\"=\"traffic_signals\"][\"camera:type\"~\"red_light|enforcement\"]($south,$west,$north,$east););out body;"
@@ -111,33 +130,36 @@ object SafetyAlertLifecycleBridge {
         c.requestMethod = "POST"; c.connectTimeout = 8000; c.readTimeout = 25000; c.doOutput = true
         c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
         c.setRequestProperty("User-Agent", "Haritalar-Android/1.0 (open-source navigation app)")
-        c.outputStream.use { it.write(("data=" + URLEncoder.encode(q, "UTF-8")).toByteArray()) }
-        if (c.responseCode !in 200..299) error("Overpass HTTP ${c.responseCode}")
-        val elements = JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optJSONArray("elements") ?: JSONArray()
-        return buildList {
-            for (i in 0 until elements.length()) {
-                val e = elements.getJSONObject(i); val tags = e.optJSONObject("tags") ?: JSONObject()
-                val lat = e.optDouble("lat", Double.NaN); val lon = e.optDouble("lon", Double.NaN)
-                if (!lat.isFinite() || !lon.isFinite()) continue
-                val highway = tags.optString("highway")
-                val enforcement = tags.optString("enforcement").lowercase()
-                val cameraType = tags.optString("camera:type").lowercase()
-                val isTrafficSignalCamera = highway == "traffic_signals" && (cameraType.contains("red_light") || cameraType.contains("enforcement"))
-                val isAverageSpeed = highway == "speed_camera" && enforcement.contains("average")
-                val type = when {
-                    isTrafficSignalCamera -> SafetyPointType.TRAFFIC_LIGHT_CAMERA
-                    isAverageSpeed -> SafetyPointType.AVERAGE_SPEED_ZONE
-                    else -> SafetyPointType.FIXED_SPEED_CAMERA
+        try {
+            c.outputStream.use { it.write(("data=" + URLEncoder.encode(q, "UTF-8")).toByteArray()) }
+            if (c.responseCode !in 200..299) error("Overpass HTTP ${c.responseCode}")
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong("last_live_fetch", System.currentTimeMillis()).apply()
+            val elements = JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optJSONArray("elements") ?: JSONArray()
+            return buildList {
+                for (i in 0 until elements.length()) {
+                    val e = elements.getJSONObject(i); val tags = e.optJSONObject("tags") ?: JSONObject()
+                    val lat = e.optDouble("lat", Double.NaN); val lon = e.optDouble("lon", Double.NaN)
+                    if (!lat.isFinite() || !lon.isFinite()) continue
+                    val highway = tags.optString("highway")
+                    val enforcement = tags.optString("enforcement").lowercase()
+                    val cameraType = tags.optString("camera:type").lowercase()
+                    val isTrafficSignalCamera = highway == "traffic_signals" && (cameraType.contains("red_light") || cameraType.contains("enforcement"))
+                    val isAverageSpeed = highway == "speed_camera" && enforcement.contains("average")
+                    val type = when {
+                        isTrafficSignalCamera -> SafetyPointType.TRAFFIC_LIGHT_CAMERA
+                        isAverageSpeed -> SafetyPointType.AVERAGE_SPEED_ZONE
+                        else -> SafetyPointType.FIXED_SPEED_CAMERA
+                    }
+                    val confidence = if (isTrafficSignalCamera || isAverageSpeed) Confidence.MEDIUM else Confidence.HIGH
+                    val prefix = when (type) {
+                        SafetyPointType.TRAFFIC_LIGHT_CAMERA -> "osm-traffic-light-camera"
+                        SafetyPointType.AVERAGE_SPEED_ZONE -> "osm-average-speed"
+                        else -> "osm-speed-camera"
+                    }
+                    add(SafetyPoint("$prefix-${e.optLong("id", i.toLong())}", lat, lon, type, confidence, DataSource.LIVE, directionBearingDegrees = direction(tags.optString("direction")), speedLimitKmh = tags.optString("maxspeed").takeWhile(Char::isDigit).toIntOrNull()))
                 }
-                val confidence = if (isTrafficSignalCamera || isAverageSpeed) Confidence.MEDIUM else Confidence.HIGH
-                val prefix = when (type) {
-                    SafetyPointType.TRAFFIC_LIGHT_CAMERA -> "osm-traffic-light-camera"
-                    SafetyPointType.AVERAGE_SPEED_ZONE -> "osm-average-speed"
-                    else -> "osm-speed-camera"
-                }
-                add(SafetyPoint("$prefix-${e.optLong("id", i.toLong())}", lat, lon, type, confidence, DataSource.LIVE, directionBearingDegrees = direction(tags.optString("direction")), speedLimitKmh = tags.optString("maxspeed").takeWhile(Char::isDigit).toIntOrNull()))
             }
-        }
+        } finally { c.disconnect() }
     }
 
     private fun direction(s: String): Double? = s.toDoubleOrNull()?.let { (it % 360 + 360) % 360 } ?: when (s.lowercase()) {
@@ -152,6 +174,23 @@ object SafetyAlertLifecycleBridge {
         val a = JSONArray(); points.forEach { p -> a.put(JSONObject().apply { put("id", p.id); put("lat", p.latitude); put("lon", p.longitude); put("type", p.type.name); put("confidence", p.confidence.name); p.directionBearingDegrees?.let { put("dir", it) }; p.speedLimitKmh?.let { put("speed", it) } }) }
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("points", a.toString()).putLong("time", System.currentTimeMillis()).apply()
     }
+
+    /** Loads only explicitly bundled offline data; an empty package is a safe silent default. */
+    private fun loadOfflinePackage(c: Context, route: List<Pair<Double, Double>>): List<SafetyPoint> = runCatching {
+        val root = JSONObject(c.assets.open("safety_offline.json").bufferedReader().use { it.readText() })
+        val regions = root.optJSONArray("regions") ?: return@runCatching emptyList()
+        val south = route.minOf { it.first } - .002; val north = route.maxOf { it.first } + .002
+        val west = route.minOf { it.second } - .002; val east = route.maxOf { it.second } + .002
+        val selected = JSONArray()
+        for (i in 0 until regions.length()) {
+            val region = regions.getJSONObject(i); val box = region.optJSONObject("bbox") ?: continue
+            if (box.optDouble("north", Double.NEGATIVE_INFINITY) < south || box.optDouble("south", Double.POSITIVE_INFINITY) > north || box.optDouble("east", Double.NEGATIVE_INFINITY) < west || box.optDouble("west", Double.POSITIVE_INFINITY) > east) continue
+            val points = region.optJSONArray("points") ?: continue
+            for (j in 0 until points.length()) selected.put(points.getJSONObject(j))
+        }
+        parse(selected).map { it.copy(source = DataSource.OFFLINE) }
+    }.getOrElse { Log.w(TAG, "Offline safety package unavailable", it); emptyList() }
+
     private fun parse(a: JSONArray) = buildList<SafetyPoint> {
         for (i in 0 until a.length()) {
             val p = a.getJSONObject(i)
@@ -162,11 +201,7 @@ object SafetyAlertLifecycleBridge {
     }
 
     private fun show(a: Activity, alert: SafetyAlert.Approach) {
-        val bucket = when {
-            alert.level.name == "FINAL" -> "final"
-            alert.remainingMeters <= 500.0 -> "500"
-            else -> (alert.remainingMeters / 500.0).toInt().coerceAtLeast(1).toString()
-        }
+        val bucket = when { alert.level.name == "FINAL" -> "final"; alert.remainingMeters <= 500.0 -> "500"; else -> (alert.remainingMeters / 500.0).toInt().coerceAtLeast(1).toString() }
         val alertKey = "${alert.pointId}:$bucket"
         if (alertKey == lastAlertKey) return
         lastAlertKey = alertKey
@@ -180,8 +215,7 @@ object SafetyAlertLifecycleBridge {
             v.text = text; v.textSize = if (alert.level.name == "FINAL") 20f else 18f; v.gravity = Gravity.CENTER; v.setTextColor(-1); v.setPadding(20, 18, 20, 18); v.background = GradientDrawable().apply { setColor(0xFFB71C1C.toInt()); cornerRadius = 22f }; v.visibility = View.VISIBLE
             hideCardRunnable?.let { v.removeCallbacks(it) }
             val hide = Runnable { v.visibility = View.GONE }
-            hideCardRunnable = hide
-            v.postDelayed(hide, ALERT_VISIBLE_MS)
+            hideCardRunnable = hide; v.postDelayed(hide, ALERT_VISIBLE_MS)
             runCatching { MainActivity::class.java.getDeclaredMethod("speak", String::class.java, Boolean::class.javaPrimitiveType).also { it.isAccessible = true }.invoke(a, "Dikkat. $text", true) }
         }
     }
