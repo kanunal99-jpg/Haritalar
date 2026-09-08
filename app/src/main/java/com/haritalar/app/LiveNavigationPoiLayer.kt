@@ -1,5 +1,6 @@
 package com.haritalar.app
 
+import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -40,6 +41,7 @@ class LiveNavigationPoiLayer {
         private const val DEBOUNCE_MS = 900L
         private const val MIN_REFRESH_MS = 5_000L
         private const val MAX_RESULTS = 300
+        private const val HIT_RADIUS_PX = 18f
         private const val TAG = "LiveNavigationPoi"
     }
 
@@ -54,9 +56,13 @@ class LiveNavigationPoiLayer {
         val currentMap = map ?: return@OnMapClickListener false
         val screenPoint = currentMap.projection.toScreenLocation(point)
         val features = currentMap.queryRenderedFeatures(
-            screenPoint,
-            CIRCLE_LAYER_ID,
-            LABEL_LAYER_ID,
+            RectF(
+                screenPoint.x - HIT_RADIUS_PX,
+                screenPoint.y - HIT_RADIUS_PX,
+                screenPoint.x + HIT_RADIUS_PX,
+                screenPoint.y + HIT_RADIUS_PX,
+            ),
+            arrayOf(CIRCLE_LAYER_ID, LABEL_LAYER_ID),
         )
         val feature = features.firstOrNull() ?: return@OnMapClickListener false
         showPoiDetails(feature)
