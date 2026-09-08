@@ -22,16 +22,12 @@ object ValhallaTransportParser {
         if (maneuvers == null) return
         for (index in 0 until maneuvers.length()) {
             val maneuver = maneuvers.optJSONObject(index) ?: continue
-            val ferry = maneuver.optBoolean("ferry", false)
-            val travelType = maneuver.optString("travel_type", "").lowercase()
-            val maneuverType = maneuver.optInt("type", -1)
-
-            when {
-                ferry || travelType == "ferry" || maneuverType == 28 || maneuverType == 29 ->
-                    types += RouteTransportType.FERRY
-                travelType == "car" || maneuver.optString("travel_mode", "").equals("drive", true) ->
-                    types += RouteTransportType.ROAD
-            }
+            types += ValhallaTransportClassifier.classify(
+                ferry = maneuver.optBoolean("ferry", false),
+                travelType = maneuver.optString("travel_type", null),
+                travelMode = maneuver.optString("travel_mode", null),
+                maneuverType = if (maneuver.has("type")) maneuver.optInt("type") else null,
+            )
         }
     }
 }
