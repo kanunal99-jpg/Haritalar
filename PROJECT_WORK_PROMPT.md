@@ -1,100 +1,80 @@
 # HARİTALAR — YAŞAYAN PROJE ÇALIŞMA PROMPTU
 
-Bu dosya yaşayan teknik hafızadır. Her gerçek geliştirme turunda GitHub gerçekliğiyle senkronize edilir. Eski HEAD, eski CI sonucu veya tamamlanmış gibi görünen fakat repoda bulunmayan işler güncel durum olarak kabul edilmez.
+Bu dosya yaşayan teknik hafızadır. Her `Devam` işleminde GitHub gerçekliğiyle senkronize edilir. Eski HEAD veya eski CI/APK sonucu güncel kabul edilmez.
 
 ## Çalışma standardı
 
-Her `Devam` işleminde:
-1. `main` HEAD, son commitler, ilgili dosyalar, klasör yapısı ve CI GitHub'dan doğrulanır.
-2. Mevcut kod okunmadan MainActivity veya kritik zincir körlemesine rewrite edilmez.
-3. Kritik gerçek eksik seçilir; başarıyla doğrulanmış testler gereksiz yere tekrarlanmaz.
-4. Gerekiyorsa gerçek kod değişikliği yapılır ve commitlenir.
-5. CI sonucu ve APK artifact'ı gerçekten doğrulanır.
-6. APK yalnızca ilgili HEAD için başarılı build/artifact doğrulanırsa hazır kabul edilir.
-7. Tur sonunda bu dosya güncel HEAD, commit, değişen dosyalar, test/CI/APK durumu ve açık işlerle güncellenir.
+`Devam` = GITHUB → GÜNCEL DURUM → KOD → EN KRİTİK GERÇEK EKSİK → GERÇEK DEĞİŞİKLİK → TEST → COMMIT → GITHUB DOĞRULAMA → CI → APK → BU DOSYAYI GÜNCELLE.
 
-## Gerçeklik / güvenlik
+Mevcut kod okunmadan MainActivity körlemesine rewrite edilmez. Başarılı testler yalnız değişiklik etkiliyorsa tekrarlanır. Yapılmayan iş yapılmış gibi, başarısız CI başarılı gibi, build edilmemiş APK hazır gibi raporlanmaz.
 
-Sahte trafik, ETA, radar/EDS, POI, koordinat veya API response üretilmez. Test fixture canlı veri gibi gösterilmez. OSM canlı trafik kaynağı değildir. Web scraping trafik provider'ı değildir. Secret/API key public GitHub'a yazılmaz. Ücretli servis kullanıcı onayı olmadan etkinleştirilmez.
+## Gerçeklik / güvenlik standardı
 
-Kritik dayanıklılık zinciri:
+Sahte trafik, ETA, radar/EDS, POI, koordinat, API response veya canlı veri üretilmez. Test fixture canlı veri değildir. OSM canlı trafik kaynağı değildir. Web scraping provider değildir. API key/secret public kaynak koda yazılmaz. Ücretli servis kullanıcı onayı olmadan etkinleştirilmez.
+
+Kritik zincir:
 `ANA SERVİS → ALTERNATİF → CACHE/FALLBACK → HATA YÖNETİMİ → GÜVENLİ VARSAYILAN → LOG/İZLEME → SMOKE TEST`
 
-## Mimari / ürün durumu
+## Ürün / mimari
 
-- `app/` Android UI/platform
-- `core/` domain/data
+- Android Kotlin uygulaması
+- `app/` UI/platform, `core/` domain/data
 - MapLibre + OpenFreeMap
 - Nominatim geocoding
-- Valhalla online routing
-- MainActivity gerçek Valhalla sonuçlarından 7 rota seçeneği üretir: en hızlı, en kısa, ücretsiz öncelikli, ücretli hızlı, feribot hızlı, feribotsuz, ücretsiz+feribotsuz.
-- Feribot/toll yalnız gerçek Valhalla sonucu veya doğrulanmış hesap üzerinden gösterilir; bilinmeyen ücret uydurulmaz.
-- MainActivity'de GPS, MapLibre, Türkçe TTS, navigation progress, 60 m off-route ve 15 s reroute cooldown mevcuttur.
+- Valhalla routing
+- MainActivity gerçek Valhalla sonuçlarından 7 alternatif üretir: en hızlı, en kısa, ücretsiz öncelikli, ücretli hızlı, feribot hızlı, feribotsuz, ücretsiz+feribotsuz.
+- GPS, navigation progress, Türkçe TTS, 60 m off-route ve 15 s reroute cooldown mevcut.
+- Feribot/toll yalnız gerçek routing sonucu veya doğrulanmış hesapla gösterilir; bilinmeyen ücret uydurulmaz.
 
 ## Trafik çekirdeği
 
-`core/src/main/kotlin/com/haritalar/core/traffic/`:
-- TrafficProvider.kt
-- TrafficProviderChain.kt
-- TrafficRouteMatcher.kt
-- TrafficRouteAdapter.kt
-- TrafficRouteCostModel.kt
-- TrafficRouteRanking.kt
-- RouteTrafficIntelligence.kt
-- TrafficRouteIntelligence.kt
-- TrafficRouteOrchestrator.kt
-- TomTomTrafficProvider.kt
-- TrafficRouteRankingService.kt
+`core/src/main/kotlin/com/haritalar/core/traffic/` altında TrafficProvider, TrafficProviderChain, TrafficRouteMatcher, TrafficRouteAdapter, TrafficRouteCostModel, TrafficRouteRanking, RouteTrafficIntelligence, TrafficRouteIntelligence, TrafficRouteOrchestrator, TomTomTrafficProvider ve TrafficRouteRankingService bulunur.
 
-`TrafficRouteRankingService` route seti için en fazla bir provider-chain snapshot alır ve geometry-aware canonical ranking'e verir. Empty/invalid route, provider/network failure, expired/mismatch/LOW-confidence traffic durumlarında base ETA korunur. TomTom route örneklemesi kontrollüdür.
+`TrafficRouteRankingService` route seti için en fazla bir provider-chain snapshot alır ve geometry-aware ranking uygular. Empty/invalid route, provider/network failure, expired/mismatch/LOW-confidence traffic durumlarında base ETA korunur. `rankBlocking()` suspend `rank()` fonksiyonunu bounded 120 saniyelik blocking bridge üzerinden mevcut Executor akışına bağlar ve ana thread'de kullanılmamalıdır.
 
-`TrafficRouteRankingService.rankBlocking()` mevcut Executor tabanlı Android akışını suspend `rank()` ile aynı kaynak mantığı üzerinden bounded biçimde bağlar. Blocking çağrı ana thread'de kullanılmamalıdır; varsayılan timeout 120 saniyedir.
+## TomTom / credential
 
-## TomTom
+`TomTomTrafficProvider` gerçek TomTom Flow Segment Data endpointini kullanır; key boşsa pasiftir, scraping yoktur ve snapshot/segment doğrulamaları uygulanır. `app/build.gradle.kts` TOMTOM_API_KEY'i Gradle property veya environment variable'dan alır ve `BuildConfig.TOMTOM_API_KEY` üretir. `TrafficEngineFactory`: BuildConfig → TomTomTrafficProvider → TrafficProviderChain → TrafficRouteRankingService.
 
-`TomTomTrafficProvider` gerçek TomTom Flow Segment Data endpointini kullanır; key boşsa pasiftir, scraping yoktur, snapshot TTL 60 saniyedir ve hız/geometry doğrulamaları yapılır.
-
-`app/build.gradle.kts` TOMTOM_API_KEY'i Gradle property veya environment variable'dan alır ve `BuildConfig.TOMTOM_API_KEY` üretir. Secret kaynak koda yazılmaz. `TrafficEngineFactory` BuildConfig → TomTomTrafficProvider → TrafficProviderChain → TrafficRouteRankingService zincirini kurar.
-
-Gerçek credential sağlanmadığı için canlı TomTom trafiğinin bu repo/CI üzerinde aktif olduğu iddia edilmez. Key yokken base Valhalla ETA korunmalıdır.
+Gerçek credential sağlanmadığı için canlı TomTom trafiğinin aktif olduğu iddia edilmez. Key yokken base Valhalla ETA korunur.
 
 ## 7 rota kartı trafik entegrasyonu
 
-MainActivity artık route generation tamamlanmadan traffic ranking çalıştırmaz. Yedi rota sonucu tamamlandığında tek snapshot/candidate set üzerinden ranking çalıştırılır; stale generation sonucu UI'a yazılmaz.
+MainActivity'de 7 route generation tamamlandıktan sonra tek candidate set üzerinden `TrafficRouteRankingService.rankBlocking()` çağrılır. Stale `routeGeneration` sonucu UI'a yazılmaz. `RouteTrafficPresentation` ranked sonuçları UI-safe ETA modellerine çevirir.
 
-Akış:
-`7 Valhalla route → TrafficRouteRankingService.rankBlocking → TrafficRouteRanking → RouteTrafficPresentation → route-card sorting/rendering`
+Kritik route identity düzeltmesi tamamlandı: ranking adjusted ETA'ya göre sıralanabildiği için presentation modelleri artık `ranked` candidate ile aynı `routeId` üzerinden eşleştiriliyor; pozisyon bazlı input-candidate/model zip hatası kaldırıldı.
 
-ÖNEMLİ düzeltme: `TrafficRouteRanking` sonucu adjusted ETA'ya göre yeniden sıraladığı için presentation modelleri artık ranked candidate ile aynı `routeId` üzerinden eşleştirilir. Önceki hatalı yaklaşımda ranked modelleri input candidate listesiyle pozisyon bazlı zip'lemek route kimliğini kaydırabilirdi; bu düzeltilmiştir.
+Trafik uygulanmadığında kart temel Valhalla ETA'sını gösterir. Doğrulanmış trafik varsa adjusted ETA/delay gösterilebilir; trafik gecikmesi uydurulmaz.
 
-Trafik uygulanmadığında kart temel Valhalla süresini kullanır. Doğrulanmış trafik uygulandığında UI-safe adjusted duration/delay gösterilebilir; trafik yoksa gecikme uydurulmaz.
+## Bu turda gerçek değişiklikler — 2026-09-08
 
-## Güncel doğrulanmış geliştirme turu — 2026-09-08
+1. `282a4084eb8cfa97e74619b2714cfbbe9ea7d288` — route-card traffic presentation identity fix için patch script güncellendi.
+2. `848de857bea27ce6b941664f11658c9a0f0da757` — MainActivity 7 rota kartına ranking/presentation entegrasyonu GitHub Actions tarafından gerçek kaynak koda uygulandı.
+3. `0a2bf30f71578f14bf9843ccd4a470969eb0af2b` — `TrafficRouteRankingService.rankBlocking()` içindeki coroutine invocation compile hatası düzeltildi; suspend lambda üzerinden `startCoroutine` kullanılıyor.
+4. `8b4e0f8453000b3121f60e0a23ac3cf8b5b3d5df` — bu turdaki ara yaşayan durum kaydı.
+5. `b27b5992ab1bedceb73929706563624d4d3f79b3` — CI'ın kaynak kodu değiştirmesini kaldıran workflow düzenlemesi.
+6. `1609972c4320855869d7d89126d61ebbee64ef4d` — obsolete `scripts/integrate_traffic_ranking.py` silindi.
+7. Bu doküman güncellemesi ile güncel HEAD tekrar doğrulanmış durumla senkronize ediliyor.
 
-### HEAD zinciri
-- Önceki gerçek HEAD: `9efc2dae5d6f4d08dd88bb54c9c839ea95e8ecb4` (`feat(traffic): add route-card integration patch script`)
-- `282a4084eb8cfa97e74619b2714cfbbe9ea7d288` — ranking presentation route-identity fix script
-- `848de857bea27ce6b941664f11658c9a0f0da757` — GitHub Actions bot tarafından gerçek MainActivity route-card integration commit
-- Güncel kod düzeltmesi: `0a2bf30f71578f14bf9843ccd4a470969eb0af2b` — `fix(traffic): invoke suspend ranking from blocking bridge`
-- Bu doküman güncellemesi bu HEAD'in üstüne commitlenecektir.
+## CI / APK — doğrulanmış
 
-### Gerçek CI bulgusu
-Run `299` (`34274046287`) gerçek kod derlemesinde başarısız oldu. Unit test aşamasında `TrafficRouteRankingService.kt:65` içinde suspend `rank()` fonksiyonunun coroutine dışından çağrılması derleme hatası verdi. Bu hata logdan doğrulandı; APK build bu nedenle çalışmadı.
+- Run `299` (`34274046287`) **failure**: `TrafficRouteRankingService.kt:65` suspend `rank()` coroutine dışından çağrıldığı için compile error; APK build atlandı.
+- Run `300` (`34274183521`) **success** ve HEAD `0a2bf30f71578f14bf9843ccd4a470969eb0af2b` için unit tests + debug APK build başarılı.
+- Run `300` APK artifact: `haritalar-debug-apk-300`; artifact digest `sha256:81c662300474b06f6e2821bab6cc24e386546786d799b3b29d4a2a4387386a9c`.
+- Run `300` artifact içindeki `app-debug.apk` SHA-256: `da2c122ef16c81558dca2aa14d8a32dc7f1f6e38938f0b3b6f5c8e6d820915a6`.
+- Run `303` (`34274419418`) **success** ve güncel kaynak ağacındaki traffic integration cleanup sonrası HEAD `1609972c4320855869d7d89126d61ebbee64ef4d` için unit tests + debug APK build başarılı.
+- Run `303` APK artifact: `haritalar-debug-apk-303`; artifact digest `sha256:57809a47d28ca3084f3459f5b61fd1ad9f96e2e456cce52b29070bee69821cb3`.
+- Run `303` artifact içindeki `app-debug.apk` SHA-256: `cb599f1c47e871e3daec0c7705b98bf57da3b26909c9a697f1a794110fe3fe59`.
+- Run `303` APK **gerçekten hazır/doğrulandı**.
 
-Run `299` sırasında route-card identity düzeltmesi de gerçek GitHub workspace'ine uygulandı ve `848de857...` commit'i oluşturuldu. Bu commit GITHUB_TOKEN ile yapıldığı için yeni workflow tetiklemedi; dolayısıyla run 299'un head SHA'sı eski commit olarak kaldı. Bu durum APK'nın 848de857 veya 0a2bf30... HEAD'i için başarılı olduğunu göstermez.
+## Güncel HEAD
 
-### Yapılan gerçek düzeltmeler
-1. `scripts/integrate_traffic_ranking.py` artık mevcut route-card integration içindeki ranked presentation eşlemesini güvenli şekilde düzeltir ve hedef bulunamazsa körlemesine patch yapmayı reddeder.
-2. `TrafficRouteRankingService.rankBlocking()` içinde suspend fonksiyon doğru şekilde `suspend () -> ...` lambda üzerinden `startCoroutine` ile çağrılacak hale getirildi.
-3. MainActivity route-card mapping'i `ranked.zip(RouteTrafficPresentation.fromRanked(ranked)).associate { routeId -> model }` mantığıyla route kimliğini koruyacak hale getirildi.
-4. Traffic ranking yalnız yedi route generation tamamlandığında çalışır; kısmi sonuçlar base Valhalla kartları olarak gösterilebilir.
+**`1609972c4320855869d7d89126d61ebbee64ef4d`**
 
-## CI / APK durumu
+Son commit:
+`chore: remove obsolete traffic integration patch script`
 
-- Son temiz doğrulanmış eski build: Run `287`, artifact `haritalar-debug-apk-287`, SHA-256 `f9e6550dd279ac5458a7ff7c535ff1b538dc1dc48b5816d28207b56e8767912a`.
-- Run `299`: **failure** — `TrafficRouteRankingService.rankBlocking()` compile error. APK **yok / hazır değil**.
-- Güncel HEAD `0a2bf30...` için bu doküman commitinden sonra yeni CI sonucu ayrıca doğrulanmalıdır.
-- Yeni HEAD için başarılı APK doğrulanana kadar APK hazır denmeyecektir.
+`main` branch bu committe. Bu HEAD, route-card traffic integration kodunu kalıcı olarak repoda tutuyor ve CI workflow artık kaynak kodu değiştiren self-mutating patch adımı içermiyor.
 
 ## Başarılı / mevcut
 
@@ -110,22 +90,24 @@ Run `299` sırasında route-card identity düzeltmesi de gerçek GitHub workspac
 - safety/radar domain
 - traffic provider chain
 - geometry-aware traffic matching/ranking
-- TomTom real provider adapterı
+- TomTom provider adapter
+- secure TomTom configuration
 - UI-safe traffic presentation
-- secure TomTom configuration factory
-- route-generation tamamlanınca tek ranking snapshot yaklaşımı
-- stale route-generation UI guard
+- route-generation tamamlanınca tek traffic ranking snapshot
+- stale generation UI guard
+- routeId-preserving traffic card presentation
+- güncel HEAD için başarılı unit tests
+- güncel HEAD için başarılı debug APK
 
-## Açık işler / sıradaki hedef
+## Açık işler / sonraki hedef
 
-1. Güncel HEAD için CI'ı temiz şekilde doğrula.
-2. Unit test + debug APK artifact + SHA-256'yı güncel HEAD ile doğrula.
-3. CI temizlendikten sonra geçici route-card patch scriptini ve workflow içindeki self-mutating patch adımını kaldır; CI kaynak kodu değiştirmemeli, yalnız test/build yapmalıdır.
-4. Gerçek TomTom credential olmadan canlı trafik aktifmiş gibi davranma; key yokken base ETA fallback'ini test et.
-5. Gerçek credential sağlandığında TomTom smoke/integration testi yap; kota/cache/throttling uygula.
-6. GPS başına provider çağrısı yapma; refresh/cooldown/cache zincirini tamamla.
-7. Navigation sırasında canlı refresh → ranking → UI ve off-route/reroute → ranking zincirini bağla.
-8. HERE yalnız gerçek API erişimi ve kullanım şartları doğrulanırsa değerlendir.
+1. Gerçek TomTom credential olmadan canlı trafik iddiası yapma; credential sağlandığında gerçek smoke/integration test yap.
+2. Traffic refresh/cooldown/cache mekanizmasını GPS başına çağrı yapmayacak şekilde tamamla.
+3. Navigation sırasında live traffic refresh → ranking → UI zincirini bağla.
+4. Off-route/reroute sonrasında aynı traffic ranking/presentation zincirini kontrollü şekilde yeniden çalıştır.
+5. Gerçek traffic-adjusted ranking için integration/smoke coverage artır.
+6. HERE yalnız gerçek API erişimi, authentication, kota ve kullanım şartları doğrulanırsa değerlendir.
+7. Sonrasında safety/radar canlı veri kaynakları yalnız makine-okunabilir ve doğrulanmış resmi/topluluk API erişimi varsa entegre edilir.
 
 ## Gidilmeyecek yollar
 
@@ -141,6 +123,6 @@ Run `299` sırasında route-card identity düzeltmesi de gerçek GitHub workspac
 - build edilmemiş APK'yı hazır göstermek
 - CI'ın kaynak kodu sessizce değiştirmesine kalıcı olarak izin vermek
 
-## Sonraki hedef
+## Sonraki Devam hedefi
 
-**Güncel HEAD'in CI sonucunu doğrula. Temiz CI + güncel APK doğrulamasından sonra self-mutating patch mekanizmasını kaldır ve MainActivity 7 rota kartı trafik entegrasyonunu kalıcı kaynak kodu olarak koru. Ardından gerçek TomTom refresh/cache/ranking zincirini navigation akışına taşı.**
+**Güncel HEAD `1609972c...` üzerinden gerçek TomTom traffic refresh/cache/cooldown katmanını incele; credential yoksa güvenli inert/fallback davranışını koru. Sonra navigation live-refresh → ranking → route-card/UI → off-route/reroute zincirini küçük ve doğrulanabilir adımlarla geliştir. Her tur sonunda bu dosyayı yeniden GitHub gerçekliğiyle güncelle.**
