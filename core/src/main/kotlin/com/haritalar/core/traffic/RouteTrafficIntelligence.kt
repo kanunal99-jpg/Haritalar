@@ -39,9 +39,10 @@ object RouteTrafficIntelligence {
         .sortedWith(compareBy<RankedRoute> { it.adjustedDurationSeconds }.thenBy { it.baseDurationSeconds }.thenBy { it.routeId })
 
     private fun hasUsableTraffic(segment: TrafficSegment): Boolean {
+        // A verified closure is actionable even when the provider has no speed
+        // data and therefore uses the model's closure penalty.
+        if (segment.closure) return segment.confidence != TrafficConfidence.LOW || segment.id.isNotBlank()
         if (segment.confidence == TrafficConfidence.LOW) return false
-        // A verified closure is actionable even when the provider has no speed data.
-        if (segment.closure) return true
 
         val live = segment.speedKmh
         val freeFlow = segment.freeFlowSpeedKmh
