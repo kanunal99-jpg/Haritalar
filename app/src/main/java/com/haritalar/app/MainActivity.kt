@@ -22,6 +22,7 @@ import android.widget.TextView
 import com.haritalar.core.navigation.GeoCoordinate
 import com.haritalar.core.navigation.KgmTollEstimator
 import com.haritalar.core.navigation.Navigation3dCameraPolicy
+import com.haritalar.core.navigation.NavigationPoiDetails
 import com.haritalar.core.navigation.NavigationProgressEngine
 import com.haritalar.core.navigation.TollBridge
 import org.json.JSONArray
@@ -70,6 +71,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var searchInput: EditText
     private lateinit var searchResults: LinearLayout
     private lateinit var routePanel: LinearLayout
+    private lateinit var poiPanel: LinearLayout
     private lateinit var navigationButton: Button
     private var locationComponent: LocationComponent? = null
     private var livePoiLayer: LiveNavigationPoiLayer? = null
@@ -181,6 +183,21 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             topMargin = 106
         })
+
+        poiPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18, 14, 18, 14)
+            background = rounded(0xFCFFFFFF.toInt(), 24f)
+            elevation = 14f
+            visibility = View.GONE
+        }
+        root.addView(poiPanel, FrameLayout.LayoutParams(-1, -2).apply {
+            gravity = Gravity.BOTTOM
+            leftMargin = 12
+            rightMargin = 12
+            bottomMargin = 218
+        })
+
         navigationButton = makeActionButton("Rota Bitir") { stopNavigation() }.apply { visibility = View.GONE }
         root.addView(navigationButton, FrameLayout.LayoutParams(-2, 60).apply {
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
@@ -213,7 +230,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     .zoom(11.5)
                     .build()
                 ThreeDNavigationLayer.install(style)
-                livePoiLayer = LiveNavigationPoiLayer().also { it.install(map, style) }
+                livePoiLayer = LiveNavigationPoiLayer { details -> showPoiDetails(details) }
+                    .also { it.install(map, style) }
                 activateLocationComponent(map, style)
                 map.addOnCameraIdleListener {
                     livePoiLayer?.scheduleRefresh(map.projection.visibleRegion.latLngBounds)
@@ -265,12 +283,70 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         cornerRadius = radius
     }
 
+    private fun showPoiDetails(details: NavigationPoiDetails) {
+        if (!::poiPanel.isInitialized) return
+        poiPanel.removeAllViews()
+        poiPanel.visibility = View.VISIBLE
+
+        poiPanel.addView(TextView(this).apply {
+            text = details.title
+            textSize = 19f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, 4)
+        })
+        poiPanel.addView(TextView(this).apply {
+            text = details.categoryLabel
+            textSize = 12f
+            setPadding(0, 0, 0, 6)
+        })
+        details.addressLabel?.let { address ->
+            poiPanel.addView(TextView(this).apply {
+                text = address
+                textSize = 13f
+                setPadding(0, 0, 0, 4)
+            })
+        }
+        details.openingHoursLabel?.let { hours ->
+            poiPanel.addView(TextView(this).apply {
+                text = "Saatler: $hours"
+                textSize = 12f
+                setPadding(0, 0, 0, 8)
+            })
+        }
+
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        actions.addView(makeActionButton("Buraya git") {
+            val target = LatLng(details.poi.latitude, details.poi.longitude)
+            searchInput.setText(details.title)
+            poiPanel.visibility = View.GONE
+            livePoiLayer?.clearSelection()
+            mapView.getMapAsync { map ->
+                map.cameraPosition = CameraPosition.Builder(map.cameraPosition)
+                    .target(target)
+                    .zoom(max(map.cameraPosition.zoom, 15.5))
+                    .build()
+            }
+            selectDestination(target)
+        }, LinearLayout.LayoutParams(0, 58, 1f))
+        actions.addView(makeActionButton("Kapat") {
+            poiPanel.visibility = View.GONE
+            livePoiLayer?.clearSelection()
+        }, LinearLayout.LayoutParams(0, 58, 1f).apply { leftMargin = 8 })
+        poiPanel.addView(actions)
+
+        Log.i("MainActivity", "POI hedef kartı açıldı: ${details.title} (${details.poi.latitude}, ${details.poi.longitude})")
+    }
+
     private fun selectDestination(point: LatLng) {
         val origin = lastLocation
         if (origin == null) {
             status.text = "GPS konumu bekleniyor"
             return
         }
+        poiPanel.visibility = View.GONE
         destination = point
         navigationActive = false
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
