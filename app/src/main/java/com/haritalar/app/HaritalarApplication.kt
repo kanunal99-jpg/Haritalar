@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ScrollView
+import android.widget.LinearLayout
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -44,7 +45,7 @@ class HaritalarApplication : Application() {
         val root = content.getChildAt(0) ?: return
         val mapView = findView(root, MapView::class.java) ?: return
 
-        releaseHiddenRouteOverlay(root)
+        installRoutePanelOverlay(root)
 
         mapView.getMapAsync { map ->
             map.uiSettings.setAllGesturesEnabled(true)
@@ -60,25 +61,51 @@ class HaritalarApplication : Application() {
     }
 
     /**
-     * MainActivity keeps the route panel inside a weighted ScrollView. When the
-     * panel itself is GONE, that ScrollView can still occupy the whole upper UI
-     * and consume map touch events. Keep the parent hidden whenever its route
-     * panel is hidden so the map receives drag/zoom gestures everywhere else.
+     * MainActivity's route ScrollView is created as a weighted child of the
+     * controls column. That makes it cover the map even while the route panel
+     * is only a small card. Move that ScrollView to the root as a bottom overlay
+     * so the rest of the map remains directly draggable, zoomable and rotatable.
      */
-    private fun releaseHiddenRouteOverlay(root: View) {
-        val routePanel = findViewByClassName(root, "com.haritalar.app.MainActivity")
-        if (routePanel != null) return
+    private fun installRoutePanelOverlay(root: View) {
+        val container = root as? FrameLayout ?: return
+        if (container.findViewWithTag<View>(ROUTE_OVERLAY_TAG) != null) return
 
+        val scroll = findRouteScrollView(root) ?: return
+        val child = scroll.getChildAt(0) ?: return
+        if (child !is ViewGroup) return
+
+        val parent = scroll.parent as? ViewGroup ?: return
+        parent.removeView(scroll)
+        scroll.tag = ROUTE_OVERLAY_TAG
+        scroll.isFillViewport = false
+        scroll.clipToPadding = false
+        scroll.setBackgroundColor(0xFFF7F7F7.toInt())
+
+        val density = resources.displayMetrics.density
+        val maxHeight = (300 * density).toInt()
+        val params = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            maxHeight,
+        ).apply {
+            gravity = Gravity.BOTTOM
+            leftMargin = (10 * density).toInt()
+            rightMargin = (10 * density).toInt()
+            bottomMargin = (10 * density).toInt()
+        }
+        container.addView(scroll, params)
+
+        scroll.visibility = if (child.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+        child.viewTreeObserver.addOnGlobalLayoutListener {
+            scroll.visibility = if (child.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun findRouteScrollView(root: View): ScrollView? {
         val scrollViews = mutableListOf<ScrollView>()
         collectViews(root, ScrollView::class.java, scrollViews)
-        scrollViews.forEach { scroll ->
-            val child = scroll.getChildAt(0) ?: return@forEach
-            if (child is ViewGroup && child.visibility == View.GONE) {
-                scroll.visibility = View.GONE
-                child.viewTreeObserver.addOnGlobalLayoutListener {
-                    scroll.visibility = if (child.visibility == View.VISIBLE) View.VISIBLE else View.GONE
-                }
-            }
+        return scrollViews.firstOrNull { scroll ->
+            val child = scroll.getChildAt(0)
+            child is LinearLayout && child.childCount > 0
         }
     }
 
@@ -134,12 +161,7 @@ class HaritalarApplication : Application() {
         }
     }
 
-    private fun findViewByClassName(root: View, className: String): View? {
-        if (root.javaClass.name == className) return root
-        if (root !is ViewGroup) return null
-        for (index in 0 until root.childCount) {
-            findViewByClassName(root.getChildAt(index), className)?.let { return it }
-        }
-        return null
+    companion object {
+        private const val ROUTE_OVERLAY_TAG = "haritalar-route-overlay"
     }
 }
