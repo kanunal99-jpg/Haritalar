@@ -34,6 +34,7 @@ object SafetyAlertLifecycleBridge {
     private const val PREFS = "haritalar_safety_cache"
     private const val CACHE_TTL = 30 * 60 * 1000L
     private const val POLL_MS = 1000L
+    private const val ALERT_VISIBLE_MS = 7000L
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private val coordinator = SafetyRouteAlertCoordinator()
@@ -42,7 +43,7 @@ object SafetyAlertLifecycleBridge {
     private var signature: String? = null
     private var generation = 0
     private var card: TextView? = null
-    private var lastAlertId: String? = null
+    private var lastAlertKey: String? = null
 
     fun install(app: Application) {
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
@@ -65,25 +66,33 @@ object SafetyAlertLifecycleBridge {
 
     private fun tick() {
         val a = activity ?: return
-        if (!(field(a, "navigationActive") as? Boolean ?: false)) { tracked = emptyList(); signature = null; return }
+        if (!(field(a, "navigationActive") as? Boolean ?: false)) {
+            tracked = emptyList(); signature = null; lastAlertKey = null; hideCard(); return
+        }
         val route = latLngs(a)
         val cumulative = (field(a, "routeCumulativeMeters") as? List<Double>).orEmpty()
         val location = field(a, "lastLocation") as? Location ?: return
         if (route.size < 2 || route.size != cumulative.size) return
         val sig = route.joinToString(";") { "%.5f,%.5f".format(Locale.US, it.first, it.second) }
         if (sig != signature) {
-            signature = sig; tracked = emptyList(); val g = ++generation
+            signature = sig; tracked = emptyList(); lastAlertKey = null; hideCard(); val g = ++generation
             io.execute {
                 val points = loadPoints(a, route)
                 if (g != generation) return@execute
-                tracked = coordinator.trackPoints(route.map { SafetyRouteAlertCoordinator.RoutePoint(it.first, it.second) }, cumulative, points)
+                handler.post {
+                    if (g != generation) return@post
+                    tracked = coordinator.trackPoints(route.map { SafetyRouteAlertCoordinator.RoutePoint(it.first, it.second) }, cumulative, points)
+                }
             }
         }
         if (tracked.isEmpty()) return
         val progress = progress(route, cumulative, location)
         val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
         coordinator.evaluate(tracked, progress, bearing).forEach { alert ->
-            if (alert is SafetyAlert.Approach) show(a, alert)
+            when (alert) {
+                is SafetyAlert.Approach -> show(a, alert)
+                is SafetyAlert.Passed -> if (lastAlertKey?.startsWith("${alert.pointId}:") == true) { lastAlertKey = null; hideCard() }
+            }
         }
     }
 
@@ -109,10 +118,7 @@ object SafetyAlertLifecycleBridge {
                 val e = elements.getJSONObject(i); val tags = e.optJSONObject("tags") ?: JSONObject()
                 val lat = e.optDouble("lat", Double.NaN); val lon = e.optDouble("lon", Double.NaN)
                 if (!lat.isFinite() || !lon.isFinite()) continue
-                add(SafetyPoint("osm-speed-camera-${e.optLong("id", i.toLong())}", lat, lon,
-                    SafetyPointType.FIXED_SPEED_CAMERA, Confidence.HIGH, DataSource.LIVE,
-                    directionBearingDegrees = direction(tags.optString("direction")),
-                    speedLimitKmh = tags.optString("maxspeed").takeWhile(Char::isDigit).toIntOrNull()))
+                add(SafetyPoint("osm-speed-camera-${e.optLong("id", i.toLong())}", lat, lon, SafetyPointType.FIXED_SPEED_CAMERA, Confidence.HIGH, DataSource.LIVE, directionBearingDegrees = direction(tags.optString("direction")), speedLimitKmh = tags.optString("maxspeed").takeWhile(Char::isDigit).toIntOrNull()))
             }
         }
     }
@@ -134,8 +140,14 @@ object SafetyAlertLifecycleBridge {
     }
 
     private fun show(a: Activity, alert: SafetyAlert.Approach) {
-        if (alert.pointId == lastAlertId) return
-        lastAlertId = alert.pointId
+        val bucket = when {
+            alert.level.name == "FINAL" -> "final"
+            alert.remainingMeters <= 500.0 -> "500"
+            else -> (alert.remainingMeters / 500.0).toInt().coerceAtLeast(1).toString()
+        }
+        val alertKey = "${alert.pointId}:$bucket"
+        if (alertKey == lastAlertKey) return
+        lastAlertKey = alertKey
         val label = when (alert.type) { SafetyPointType.FIXED_SPEED_CAMERA -> "Sabit hız kamerası"; SafetyPointType.AVERAGE_SPEED_ZONE -> "Ortalama hız bölgesi"; SafetyPointType.TRAFFIC_LIGHT_CAMERA -> "Trafik ışığı kamerası"; SafetyPointType.VERIFIED_TRAFFIC_CONTROL -> "Doğrulanmış trafik kontrolü"; SafetyPointType.USER_REPORTED_SAFETY_POINT -> "Kullanıcı bildirimi" }
         val d = if (alert.remainingMeters >= 1000) "%.1f km".format(Locale("tr", "TR"), alert.remainingMeters / 1000) else "%.0f m".format(Locale("tr", "TR"), alert.remainingMeters)
         val text = "⚠ $label • $d • Hız sınırına uyun"
@@ -143,12 +155,13 @@ object SafetyAlertLifecycleBridge {
             (field(a, "status") as? TextView)?.text = "Güvenlik uyarısı • $text"
             val root = a.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0) as? FrameLayout ?: return@runOnUiThread
             val v = card ?: TextView(a).also { card = it; root.addView(it, FrameLayout.LayoutParams(-1, -2).apply { gravity = Gravity.TOP; leftMargin = 16; rightMargin = 16; topMargin = 156 }) }
-            v.text = text; v.textSize = 18f; v.gravity = Gravity.CENTER; v.setTextColor(-1); v.setPadding(20, 18, 20, 18); v.background = GradientDrawable().apply { setColor(0xFFB71C1C.toInt()); cornerRadius = 22f }; v.visibility = View.VISIBLE
-            v.postDelayed({ v.visibility = View.GONE }, 7000)
+            v.text = text; v.textSize = if (alert.level.name == "FINAL") 20f else 18f; v.gravity = Gravity.CENTER; v.setTextColor(-1); v.setPadding(20, 18, 20, 18); v.background = GradientDrawable().apply { setColor(0xFFB71C1C.toInt()); cornerRadius = 22f }; v.visibility = View.VISIBLE
+            v.removeCallbacksAndMessages(null); v.postDelayed({ v.visibility = View.GONE }, ALERT_VISIBLE_MS)
             runCatching { MainActivity::class.java.getDeclaredMethod("speak", String::class.java, Boolean::class.javaPrimitiveType).also { it.isAccessible = true }.invoke(a, "Dikkat. $text", true) }
         }
     }
 
+    private fun hideCard() { handler.post { card?.visibility = View.GONE } }
     private fun field(a: Activity, name: String): Any? = runCatching { MainActivity::class.java.getDeclaredField(name).also { it.isAccessible = true }.get(a) }.getOrNull()
     private fun latLngs(a: Activity): List<Pair<Double, Double>> = runCatching { ((field(a, "routePoints") as? List<Any>).orEmpty()).map { it.javaClass.getMethod("getLatitude").invoke(it) as Double to it.javaClass.getMethod("getLongitude").invoke(it) as Double } }.getOrDefault(emptyList())
     private fun progress(route: List<Pair<Double, Double>>, cumulative: List<Double>, l: Location): Double { var best = Double.MAX_VALUE; var p = 0.0; for (i in 0 until route.lastIndex) { val x = project(l.latitude, l.longitude, route[i], route[i + 1]); if (x.second < best) { best = x.second; p = cumulative[i] + x.first * distance(route[i], route[i + 1]) } }; return max(0.0, p) }
