@@ -11,15 +11,15 @@ data class VerifiedSafetySource(
 )
 
 object VerifiedSafetySources {
-    /** Karayolları Genel Müdürlüğü (KGM) official domain. */
-    val KGM = VerifiedSafetySource(
-        name = "Karayolları Genel Müdürlüğü",
-        baseUrl = "https://www.kgm.gov.tr",
-    )
+    val KGM = VerifiedSafetySource("Karayolları Genel Müdürlüğü", "https://www.kgm.gov.tr")
+    val EGM = VerifiedSafetySource("Emniyet Genel Müdürlüğü", "https://onlineislemler.egm.gov.tr")
+    val INTERIOR_MINISTRY = VerifiedSafetySource("T.C. İçişleri Bakanlığı", "https://www.icisleri.gov.tr")
+
+    private val allowedSources = listOf(KGM, EGM, INTERIOR_MINISTRY)
 
     fun isAllowed(source: VerifiedSafetySource): Boolean =
-        source.name == KGM.name && source.baseUrl.equals(KGM.baseUrl, ignoreCase = true)
+        allowedSources.any { it.name == source.name && it.baseUrl.equals(source.baseUrl, ignoreCase = true) }
 
     fun isAllowedUrl(url: String): Boolean =
-        url.startsWith("${KGM.baseUrl}/", ignoreCase = true)
+        allowedSources.any { url.startsWith("${it.baseUrl}/", ignoreCase = true) }
 }
