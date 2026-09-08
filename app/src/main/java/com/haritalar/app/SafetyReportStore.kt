@@ -22,9 +22,14 @@ object SafetyReportStore {
         val createdAtEpochMs: Long,
     )
 
+    /** Shared validation used by the queue and its JVM unit tests. */
+    fun isValidCoordinate(latitude: Double, longitude: Double): Boolean =
+        latitude.isFinite() && longitude.isFinite() &&
+            latitude in -90.0..90.0 && longitude in -180.0..180.0
+
     @Synchronized
     fun enqueue(context: Context, type: Type, latitude: Double, longitude: Double, pointId: String? = null): Report? {
-        if (!latitude.isFinite() || !longitude.isFinite() || latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return null
+        if (!isValidCoordinate(latitude, longitude)) return null
         val report = Report(UUID.randomUUID().toString(), type, latitude, longitude, pointId, System.currentTimeMillis())
         val current = read(context).toMutableList()
         current.add(report)
