@@ -16,4 +16,9 @@ object RouteTrafficPresentation {
             adjustedDurationSeconds = ranked.adjustedDurationSeconds.toDouble(),
             trafficApplied = ranked.trafficApplied,
         )
+
+    /** Returns models in the exact order produced by the verified ranking. */
+    fun fromRanked(
+        ranked: List<TrafficRouteRanking.RankedCandidate>,
+    ): List<RouteTrafficUiModel> = ranked.map(::from)
 }
