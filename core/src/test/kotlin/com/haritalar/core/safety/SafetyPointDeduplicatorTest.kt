@@ -74,10 +74,15 @@ class SafetyPointDeduplicatorTest {
 
     @Test
     fun resultIsDeterministicallySorted() {
-        val result = SafetyPointDeduplicator.deduplicate(listOf(
-            point("z", lon = 29.0),
-            point("a", lon = 29.002),
-        ))
+        // Keep this test focused on ordering: force a non-merging tolerance so
+        // the assertion cannot be coupled to geographic-distance behaviour.
+        val result = SafetyPointDeduplicator.deduplicate(
+            listOf(
+                point("z", lon = 29.0),
+                point("a", lon = 29.002),
+            ),
+            distanceMeters = 1.0,
+        )
         assertEquals(listOf("a", "z"), result.map { it.id })
     }
 }
