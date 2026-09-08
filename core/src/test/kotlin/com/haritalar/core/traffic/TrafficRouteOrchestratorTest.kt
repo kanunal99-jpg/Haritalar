@@ -14,14 +14,14 @@ class TrafficRouteOrchestratorTest {
     @Test
     fun nullSnapshotPreservesBaseEtaAndOrder() {
         val routes = listOf(
-            TrafficRouteOrchestrator.RouteCandidate("fast", route, 100.0),
-            TrafficRouteOrchestrator.RouteCandidate("short", route, 120.0),
+            TrafficRouteOrchestrator.RouteCandidate("fast", route, 100L),
+            TrafficRouteOrchestrator.RouteCandidate("short", route, 120L),
         )
 
         val result = TrafficRouteOrchestrator.rank(routes, null, "provider", 1L)
 
         assertEquals(listOf("fast", "short"), result.map { it.candidate.id })
-        assertEquals(listOf(100.0, 120.0), result.map { it.trafficDurationSeconds })
+        assertEquals(listOf(100L, 120L), result.map { it.trafficDurationSeconds })
         assertFalse(result.any { it.trafficApplied })
     }
 }
