@@ -1,5 +1,6 @@
 package com.haritalar.app
 
+import android.content.Context
 import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
@@ -7,7 +8,6 @@ import com.google.gson.JsonObject
 import com.haritalar.core.navigation.NavigationPoi
 import com.haritalar.core.navigation.OsmPoiParser
 import com.haritalar.core.navigation.OsmPoiQuery
-import org.maplibre.android.MapLibre
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
@@ -33,7 +33,7 @@ import java.net.URLEncoder
 import java.util.concurrent.Executors
 
 /** Bounded, throttled live OSM POI overlay. No paid provider or API key is required. */
-class LiveNavigationPoiLayer {
+class LiveNavigationPoiLayer(private val context: Context) {
     companion object {
         const val SOURCE_ID = "haritalar-live-poi-source"
         const val CIRCLE_LAYER_ID = "haritalar-live-poi-circles"
@@ -55,7 +55,8 @@ class LiveNavigationPoiLayer {
         val screenPoint = currentMap.projection.toScreenLocation(point)
         val features = currentMap.queryRenderedFeatures(
             screenPoint,
-            arrayOf(CIRCLE_LAYER_ID, LABEL_LAYER_ID),
+            CIRCLE_LAYER_ID,
+            LABEL_LAYER_ID,
         )
         val feature = features.firstOrNull() ?: return@OnMapClickListener false
         showPoiDetails(feature)
@@ -105,11 +106,7 @@ class LiveNavigationPoiLayer {
             if (address != null) append("\n").append(address)
             append("\nOpenStreetMap")
         }
-        Toast.makeText(
-            MapLibre.getInstance().getApplicationContext(),
-            message,
-            Toast.LENGTH_LONG,
-        ).show()
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     }
 
     fun scheduleRefresh(bounds: LatLngBounds?) {
