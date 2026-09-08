@@ -1,6 +1,9 @@
 package com.haritalar.core.traffic
 
 import com.haritalar.core.navigation.GeoCoordinate
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -19,7 +22,7 @@ class TomTomTrafficProviderTest {
     }
 
     @Test
-    fun validTomTomResponseIsParsedWithoutInventingGeometry() = kotlinx.coroutines.test.runTest {
+    fun validTomTomResponseIsParsedWithoutInventingGeometry() {
         val response = """
             {
               "flowSegmentData": {
@@ -43,7 +46,7 @@ class TomTomTrafficProviderTest {
             maxSamples = 2,
         )
 
-        val snapshot = provider.fetchTraffic(bounds, TrafficRoute(listOf(point)))
+        val snapshot = runSuspend { provider.fetchTraffic(bounds, TrafficRoute(listOf(point))) }
 
         assertEquals("tomtom-flow", snapshot.providerId)
         assertEquals(1_000L, snapshot.fetchedAtEpochMs)
@@ -59,14 +62,14 @@ class TomTomTrafficProviderTest {
     }
 
     @Test
-    fun malformedProviderPayloadDoesNotCreateTrafficSegment() = kotlinx.coroutines.test.runTest {
+    fun malformedProviderPayloadDoesNotCreateTrafficSegment() {
         val provider = TomTomTrafficProvider(
             apiKey = "test-key",
             httpClient = FakeClient("{\"flowSegmentData\":{\"currentSpeed\":40}}"),
             nowEpochMs = { 1_000L },
         )
 
-        val snapshot = provider.fetchTraffic(bounds, TrafficRoute(listOf(point)))
+        val snapshot = runSuspend { provider.fetchTraffic(bounds, TrafficRoute(listOf(point))) }
 
         assertTrue(snapshot.segments.isEmpty())
         assertEquals(TrafficConfidence.LOW, snapshot.confidence)
@@ -81,5 +84,14 @@ class TomTomTrafficProviderTest {
             lastApiKey = apiKey
             return body
         }
+    }
+
+    private fun <T> runSuspend(block: suspend () -> T): T {
+        var result: Result<T>? = null
+        block.startCoroutine(object : Continuation<T> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(value: Result<T>) { result = value }
+        })
+        return result!!.getOrThrow()
     }
 }
