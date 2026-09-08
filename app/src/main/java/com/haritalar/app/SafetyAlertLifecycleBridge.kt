@@ -106,7 +106,7 @@ object SafetyAlertLifecycleBridge {
     private fun fetch(route: List<Pair<Double, Double>>): List<SafetyPoint> {
         val south = route.minOf { it.first } - .002; val north = route.maxOf { it.first } + .002
         val west = route.minOf { it.second } - .002; val east = route.maxOf { it.second } + .002
-        val q = "[out:json][timeout:20];node[\"highway\"=\"speed_camera\"]($south,$west,$north,$east);out body;"
+        val q = "[out:json][timeout:20];(node[\"highway\"=\"speed_camera\"]($south,$west,$north,$east);node[\"highway\"=\"traffic_signals\"][\"camera:type\"~\"red_light|enforcement\"]($south,$west,$north,$east););out body;"
         val c = URL(ENDPOINT).openConnection() as HttpURLConnection
         c.requestMethod = "POST"; c.connectTimeout = 8000; c.readTimeout = 25000; c.doOutput = true
         c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
@@ -119,7 +119,23 @@ object SafetyAlertLifecycleBridge {
                 val e = elements.getJSONObject(i); val tags = e.optJSONObject("tags") ?: JSONObject()
                 val lat = e.optDouble("lat", Double.NaN); val lon = e.optDouble("lon", Double.NaN)
                 if (!lat.isFinite() || !lon.isFinite()) continue
-                add(SafetyPoint("osm-speed-camera-${e.optLong("id", i.toLong())}", lat, lon, SafetyPointType.FIXED_SPEED_CAMERA, Confidence.HIGH, DataSource.LIVE, directionBearingDegrees = direction(tags.optString("direction")), speedLimitKmh = tags.optString("maxspeed").takeWhile(Char::isDigit).toIntOrNull()))
+                val highway = tags.optString("highway")
+                val enforcement = tags.optString("enforcement").lowercase()
+                val cameraType = tags.optString("camera:type").lowercase()
+                val isTrafficSignalCamera = highway == "traffic_signals" && (cameraType.contains("red_light") || cameraType.contains("enforcement"))
+                val isAverageSpeed = highway == "speed_camera" && enforcement.contains("average")
+                val type = when {
+                    isTrafficSignalCamera -> SafetyPointType.TRAFFIC_LIGHT_CAMERA
+                    isAverageSpeed -> SafetyPointType.AVERAGE_SPEED_ZONE
+                    else -> SafetyPointType.FIXED_SPEED_CAMERA
+                }
+                val confidence = if (isTrafficSignalCamera || isAverageSpeed) Confidence.MEDIUM else Confidence.HIGH
+                val prefix = when (type) {
+                    SafetyPointType.TRAFFIC_LIGHT_CAMERA -> "osm-traffic-light-camera"
+                    SafetyPointType.AVERAGE_SPEED_ZONE -> "osm-average-speed"
+                    else -> "osm-speed-camera"
+                }
+                add(SafetyPoint("$prefix-${e.optLong("id", i.toLong())}", lat, lon, type, confidence, DataSource.LIVE, directionBearingDegrees = direction(tags.optString("direction")), speedLimitKmh = tags.optString("maxspeed").takeWhile(Char::isDigit).toIntOrNull()))
             }
         }
     }
@@ -133,11 +149,16 @@ object SafetyAlertLifecycleBridge {
         return runCatching { parse(JSONArray(p.getString("points", "[]"))) }.getOrDefault(emptyList())
     }
     private fun writeCache(c: Context, points: List<SafetyPoint>) {
-        val a = JSONArray(); points.forEach { p -> a.put(JSONObject().apply { put("id", p.id); put("lat", p.latitude); put("lon", p.longitude); p.directionBearingDegrees?.let { put("dir", it) }; p.speedLimitKmh?.let { put("speed", it) } }) }
+        val a = JSONArray(); points.forEach { p -> a.put(JSONObject().apply { put("id", p.id); put("lat", p.latitude); put("lon", p.longitude); put("type", p.type.name); put("confidence", p.confidence.name); p.directionBearingDegrees?.let { put("dir", it) }; p.speedLimitKmh?.let { put("speed", it) } }) }
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("points", a.toString()).putLong("time", System.currentTimeMillis()).apply()
     }
     private fun parse(a: JSONArray) = buildList<SafetyPoint> {
-        for (i in 0 until a.length()) { val p = a.getJSONObject(i); add(SafetyPoint(p.getString("id"), p.getDouble("lat"), p.getDouble("lon"), SafetyPointType.FIXED_SPEED_CAMERA, Confidence.HIGH, DataSource.CACHE, p.optDouble("dir", Double.NaN).takeUnless(Double::isNaN), p.optInt("speed", 0).takeIf { it > 0 })) }
+        for (i in 0 until a.length()) {
+            val p = a.getJSONObject(i)
+            val type = runCatching { SafetyPointType.valueOf(p.optString("type")) }.getOrDefault(SafetyPointType.FIXED_SPEED_CAMERA)
+            val confidence = runCatching { Confidence.valueOf(p.optString("confidence")) }.getOrDefault(Confidence.HIGH)
+            add(SafetyPoint(p.getString("id"), p.getDouble("lat"), p.getDouble("lon"), type, confidence, DataSource.CACHE, p.optDouble("dir", Double.NaN).takeUnless(Double::isNaN), p.optInt("speed", 0).takeIf { it > 0 }))
+        }
     }
 
     private fun show(a: Activity, alert: SafetyAlert.Approach) {
