@@ -1,7 +1,8 @@
 package com.haritalar.app
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SafetyReportStoreTest {
@@ -13,9 +14,16 @@ class SafetyReportStoreTest {
         assertEquals(SafetyReportStore.Type.INCORRECT_TYPE, SafetyReportStore.Type.valueOf("INCORRECT_TYPE"))
     }
 
+    @Test fun `valid coordinates are accepted`() {
+        assertTrue(SafetyReportStore.isValidCoordinate(41.0, 29.0))
+        assertTrue(SafetyReportStore.isValidCoordinate(-90.0, -180.0))
+        assertTrue(SafetyReportStore.isValidCoordinate(90.0, 180.0))
+    }
+
     @Test fun `invalid coordinates are rejected`() {
-        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
-        assertNull(SafetyReportStore.enqueue(context, SafetyReportStore.Type.ADD, 91.0, 29.0))
-        assertNull(SafetyReportStore.enqueue(context, SafetyReportStore.Type.ADD, 41.0, 181.0))
+        assertFalse(SafetyReportStore.isValidCoordinate(91.0, 29.0))
+        assertFalse(SafetyReportStore.isValidCoordinate(41.0, 181.0))
+        assertFalse(SafetyReportStore.isValidCoordinate(Double.NaN, 29.0))
+        assertFalse(SafetyReportStore.isValidCoordinate(41.0, Double.POSITIVE_INFINITY))
     }
 }
