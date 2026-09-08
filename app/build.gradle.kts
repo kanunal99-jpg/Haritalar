@@ -13,6 +13,16 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        val tomTomApiKey = providers.gradleProperty("TOMTOM_API_KEY")
+            .orElse(providers.environmentVariable("TOMTOM_API_KEY"))
+            .orElse("")
+            .get()
+        buildConfigField("String", "TOMTOM_API_KEY", "\"${tomTomApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
