@@ -88,6 +88,26 @@ class TrafficRefreshCoordinatorTest {
         assertIs<TrafficRefreshCoordinator.Result.Stale>(resultRef.get())
     }
 
+    @Test
+    fun `blocking refresh delegates to canonical ranker`() {
+        val coordinator = TrafficRefreshCoordinator(minimumIntervalMs = 0L)
+        val calls = AtomicInteger(0)
+
+        val result = coordinator.refreshBlocking(
+            routes = listOf(route),
+            nowEpochMs = 10_000L,
+        ) { routes, nowEpochMs ->
+            assertEquals(listOf(route), routes)
+            assertEquals(10_000L, nowEpochMs)
+            calls.incrementAndGet()
+            ranked
+        }
+
+        assertIs<TrafficRefreshCoordinator.Result.Refreshed>(result)
+        assertEquals(1, calls.get())
+        assertEquals(ranked, (result as TrafficRefreshCoordinator.Result.Refreshed).ranked)
+    }
+
     private fun <T> await(block: suspend () -> T): T {
         val completed = CountDownLatch(1)
         val result = AtomicReference<Result<T>>()
