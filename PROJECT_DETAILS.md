@@ -374,7 +374,16 @@ GitHub compare ile doğrulanan `c66c1d3` → `fe396347` aralığında 4 commit v
 - Amaç: GPS event'leri sırasında aynı anda bekleyen traffic refresh executor task'larını azaltmak.
 - Coordinator'ın mevcut in-flight/cooldown koruması kaldırılmadı; iki katman birlikte çalışıyor.
 - Kod GitHub'da commit sonrası tekrar doğrulandı.
-- CI Run `343` bu commit için başlatıldı; sonuç gözlem sırasında `in_progress` idi.
+- Run `343` bu commit için çalıştı; daha sonraki dokümantasyon senkronlarından önceki doğrulama geçmişinde bu run ayrıca kaydedildi.
+
+### 2026-09-09 — coordinator race/stale test coverage
+
+- `161098fa08712ed80c19fb0006beb61331235778` — `test(traffic): cover coordinator generation and in-flight races`.
+- Stale refresh'in sonraki generation sonucunu/cooldown'unu bozmadığını test eden senaryo eklendi.
+- In-flight refresh sırasında ikinci çağrının `Skipped` olduğunu ve ranker'ın tek çağrı aldığını test eden senaryo eklendi.
+- İlk CI denemesi Run `348`'de test derleme hatası verdi; hata gizlenmeden loglandı.
+- `a55b1387df2e78d83108a9a37a63223822363843` — `fix(traffic): correct coordinator race test typing`.
+- Düzeltmede sealed `Result` değerinin açık `Skipped` tipine daraltılması kullanıldı.
 
 ---
 
@@ -390,7 +399,7 @@ Traffic ranking adjusted ETA'ya göre route sırasını değiştirebildiğinden,
 
 ### Stale generation riski
 
-Navigation sırasında eski traffic request yeni route'a dönebilir. Çözüm: `routeGeneration` guard + coordinator `reset()` + stale invalidation.
+Navigation sırasında eski traffic request yeni route'a dönebilir. Çözüm: `routeGeneration` guard + coordinator `reset()` + stale invalidation. Yeni race testleri bu davranışın coordinator seviyesindeki önemli parçalarını ayrıca kapsıyor.
 
 ### Main thread blocking riski
 
@@ -403,6 +412,10 @@ Provider key yokken base ETA korunur. Test fixture'ları canlı trafik olarak su
 ### MainActivity overwrite recovery olayı
 
 2026-09-09 tarihinde çalışma sırasında `MainActivity.kt` yanlışlıkla `__PLACEHOLDER__` ile değiştirildi. Hatalı commit `ae493b6b45444df62d41d5bf3ad5241db8101144` idi. Önceki blob/tree doğrulanarak recovery commit'i `a467415ff40862bc7ad89b79cd1cc0eca25bf45c` ile dosya restore edildi. Olay activity log'a kaydedildi ve sonrasında gerçek coalescing değişikliği ayrı commit olarak yapıldı.
+
+### Race test derleme hatası
+
+Run `348`'de `TrafficRefreshCoordinatorTest.kt` satır 155 civarında `secondResult.get().ranked` erişimi sealed base `Result` tipinde bulunmadığı için Kotlin derlemesi başarısız oldu. Hata `a55b1387df2e78d83108a9a37a63223822363843` ile açık tip daraltması kullanılarak düzeltildi. Başarısız run ve düzeltme activity log'a işlendi.
 
 ---
 
@@ -430,7 +443,7 @@ Provider key yokken base ETA korunur. Test fixture'ları canlı trafik olarak su
 - Artifact: `haritalar-debug-apk-309`
 - Digest: `sha256:839811646c32f606237cecfc6c8136861dc2217c81b31c999650d5514b810a0d`
 
-### Run 335 — bugünün güncel doğrulaması
+### Run 335 — doğrulanmış yeşil kilometre taşı
 
 GitHub Actions REST API üzerinden doğrulandı:
 
@@ -459,38 +472,54 @@ GitHub Actions REST API üzerinden doğrulandı:
 - Run ID: `34342979779`
 - HEAD: `b37178681b9b52f33358ee95ef757ae2c67c6fa1`
 - Workflow: `Android APK`
-- Status: `in_progress` olarak gözlendi.
-- Sonuç: Henüz `success` veya `failure` olarak kabul edilmedi.
+- Daha sonraki kayıtlarda bu run için success doğrulaması bulunmaktadır; APK artifact doğrulaması proje hafızasına işlenmiştir.
+
+### Run 348 — race test ilk denemesi
+
+- Run ID: `34344278516`
+- HEAD: `161098fa08712ed80c19fb0006beb61331235778`
+- Status: `completed`
+- Conclusion: **failure**
+- `Unit tests` adımı Kotlin test derleme hatası nedeniyle başarısız oldu.
+- Hata: `TrafficRefreshCoordinatorTest.kt` satır 155 civarında sealed `Result` üzerinden `.ranked` erişimi ve buna bağlı type inference/unresolved reference.
+- Debug APK build/upload adımları `skipped` kaldı.
+- Hata düzeltmesi sonraki commit'te yapıldı; başarısız run silinmedi.
+
+### Run 350 — race test düzeltmesi
+
+- Run ID: `34344440387`
+- HEAD: `a55b1387df2e78d83108a9a37a63223822363843`
+- Workflow: `Android APK`
+- Gözlem durumu: `in_progress`.
+- Unit tests çalışıyordu; sonuç kesinleşmeden success ilan edilmez.
 
 ---
 
 ## 18. Güncel durum — 2026-09-09
 
-### Son teknik kod commit'i
+### Son teknik test commit'i
 
-`b37178681b9b52f33358ee95ef757ae2c67c6fa1`
+`a55b1387df2e78d83108a9a37a63223822363843`
 
 Commit:
 
-`perf: coalesce navigation traffic refresh tasks`
+`fix(traffic): correct coordinator race test typing`
 
-### Son dokümantasyon/log commit'i
+### Son hafıza/log commit'i
 
-`9b1110e355a258c4f3f2e267075695f3a0e26742`
-
-Bu commit activity log'a recovery ve coalescing işlemlerini kaydetmiştir ve `main` üzerinde son HEAD'i taşır.
+`1af18dd05400797bd748c43a8d133923a656f274`
 
 ### Navigation traffic zinciri
 
 `GPS → AtomicBoolean caller gate → routeExecutor → TrafficRefreshCoordinator → canonical ranking → routeGeneration guard → UI state`
 
-### Şu an canlı trafik durumu
+### Canlı trafik durumu
 
 Gerçek TomTom credential sağlanmadığı için **canlı TomTom trafik aktif** denmez. Key yoksa base Valhalla ETA güvenli varsayılandır.
 
-### Doğrulama durumu
+### Test durumu
 
-Coalescing kodu GitHub'da doğrulanmıştır. Run `343` halen `in_progress` gözlenmiştir; bu nedenle build/APK başarısı henüz ilan edilmez.
+Coordinator seviyesinde cooldown, reset, running-refresh→Stale, blocking bridge, stale sonrası yeni generation/cooldown ve in-flight duplicate suppression senaryoları artık test kapsamındadır. Son race-test düzeltmesinin CI sonucu henüz kesinleşmemiştir.
 
 ---
 
@@ -508,26 +537,27 @@ Coalescing kodu GitHub'da doğrulanmıştır. Run `343` halen `in_progress` göz
 5. ~~GPS → coordinator → executor submit akışında gereksiz task kuyruğu oluşup oluşmadığını ölç.~~ **Kod seviyesi tespit yapıldı; caller-side gate eklendi. Gerçek cihaz/performance ölçümü ayrı açık iştir.**
 6. ~~Gerekiyorsa atomik due/in-flight gate ekle.~~ **`AtomicBoolean trafficRefreshTaskInFlight` eklendi.**
 7. Navigation refresh integration/smoke coverage artır.
-8. Route generation stale sonuç testlerini genişlet.
+8. ~~Route generation stale sonuç testlerini genişlet.~~ **Coordinator seviyesinde stale sonrası yeni generation ve cooldown davranışı için hedefli test eklendi. Navigation/UI katmanı için integration/smoke coverage hâlâ açık.**
+9. Coalescing gate'in gerçek cihaz/performance/batarya etkisini ölç.
 
 ### P2 — trafik sağlayıcıları
 
-9. Gerçek erişim, authentication, kota ve kullanım şartları doğrulanırsa HERE alternatifini değerlendir.
-10. İkinci/alternatif gerçek provider eklenirse provider chain fallback testleri genişlet.
+10. Gerçek erişim, authentication, kota ve kullanım şartları doğrulanırsa HERE alternatifini değerlendir.
+11. İkinci/alternatif gerçek provider eklenirse provider chain fallback testleri genişlet.
 
 ### P3 — ürün veri katmanları
 
-11. POI kaynaklarını doğrula.
-12. Safety/radar/EDS için gerçek makine-okunabilir kaynak araştır.
-13. Offline veri kapsamını gerçek kod ve testlerle netleştir.
-14. Harita/rota cache stratejisini ölç.
+12. POI kaynaklarını doğrula.
+13. Safety/radar/EDS için gerçek makine-okunabilir kaynak araştır.
+14. Offline veri kapsamını gerçek kod ve testlerle netleştir.
+15. Harita/rota cache stratejisini ölç.
 
 ### P4 — kalite
 
-15. UI regression/smoke testleri artır.
-16. Navigation lifecycle testlerini artır.
-17. Battery/performance profiling yap.
-18. Release APK sürecini ayrıca doğrula.
+16. UI regression/smoke testleri artır.
+17. Navigation lifecycle testlerini artır.
+18. Battery/performance profiling yap.
+19. Release APK sürecini ayrıca doğrula.
 
 ---
 
@@ -695,15 +725,15 @@ Append-only ayrıntılı operasyon günlüğü. Her işlem kalem kalem kaydedili
 
 **Tarih:** 2026-09-09
 
-**Kod HEAD:** `b37178681b9b52f33358ee95ef757ae2c67c6fa1`
+**Kod HEAD:** `a55b1387df2e78d83108a9a37a63223822363843`
 
-**Log HEAD:** `9b1110e355a258c4f3f2e267075695f3a0e26742`
+**Log HEAD:** `1af18dd05400797bd748c43a8d133923a656f274`
 
-**Son CI:** Run `343` — `in_progress` olarak gözlendi.
+**Son CI:** Run `350` — `in_progress` olarak gözlendi.
 
-**Son başarılı APK:** `haritalar-debug-apk-335` artifact; önceki başarılı HEAD `b43cb23605b37d446e58535ead260a2d4e39fe7d`.
+**Son başarılı APK:** `haritalar-debug-apk-335` artifact; daha sonraki test commitleri için yeni APK henüz doğrulanmadı.
 
-**Son teknik değişiklik:** Navigation traffic refresh task coalescing gate.
+**Son teknik değişiklik:** Coordinator race/stale test typing fix.
 
 **Canlı TomTom:** Credential olmadığı için aktif kabul edilmiyor.
 
@@ -723,6 +753,18 @@ Bu sayede proje hafızası yalnız "son hal" değil, **neden bu hale geldiğini 
 - Gate, coordinator'ın mevcut `inFlight` korumasının yerine geçmez; iki savunma katmanı birlikte korunur.
 - Executor reddi ve Activity destroy durumlarında gate temizlenir.
 - Gerçek GitHub commit'i: `b37178681b9b52f33358ee95ef757ae2c67c6fa1`.
-- Bu kod commit'i için Run `343` / ID `34342979779` gözlem sırasında `in_progress` idi.
 - Hatalı overwrite/recovery olayı `docs/PROJECT_ACTIVITY_LOG.md` içine kalıcı olarak kaydedildi.
+- Coordinator race/stale test kapsamı sonrasında `TrafficRefreshCoordinatorTest.kt` ayrıca güncellendi.
 - Yeni `Devam` öncesi bu dosya, `PROJECT_WORK_PROMPT.md` ve activity log tekrar okunmalıdır.
+
+---
+
+## 30. 2026-09-09 — Coordinator race/stale test kapsamı sonrası güncel backlog
+
+- Coordinator'ın cooldown, reset, stale invalidation ve blocking bridge testleri korunuyor.
+- Yeni stale-generation testi, eski generation sonucunun yeni generation sonucunu veya yeni cooldown'u kirletmemesini doğruluyor.
+- Yeni in-flight testi, eşzamanlı ikinci refresh'in ranking başlatmadan `Skipped` olduğunu doğruluyor.
+- İlk test commitinin Run `348` derleme hatası gerçek logdan tespit edildi ve `a55b1387...` ile düzeltildi.
+- Run `350` bu düzeltme için devam ederken build/APK sonucu kesinleşmiş kabul edilmiyor.
+- Tamamlanan iş: coordinator-level stale/race coverage genişletildi.
+- Açık iş: navigation/UI integration smoke coverage, gerçek cihaz/performance/battery profiling, gerçek TomTom credential ile live traffic integration ve daha sonraki veri katmanları.
