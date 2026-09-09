@@ -34,6 +34,38 @@ Ana döngü:
 
 **Bir virgül/noktalama değişikliği dahi işlem olarak kabul edilir ve günlüğe kaydedilir.** Başarısız denemeler de kaydedilir; silinmez.
 
+### 🚨 HER İŞLEMİN SONUCU VE DİKKAT EDİLENLER REPOYA ZORUNLU KAYDEDİLECEKTİR 🚨
+
+**YAPILAN HER İŞLEM, DENEME, DEĞİŞİKLİK, TEST, HATA AYIKLAMA, GERİ ALMA, KARAR VE DOĞRULAMA `docs/PROJECT_ACTIVITY_LOG.md` DOSYASINA APPEND-ONLY OLARAK KAYDEDİLECEKTİR. HİÇBİR İŞLEM SESSİZCE GEÇİLMEYECEK.**
+
+Her işlem kaydında mümkün olduğunca şu alanlar bulunacaktır:
+
+- **İşlem numarası**
+- **Tarih / saat**
+- **İşlem türü**
+- **Amaç / neden**
+- **Kontrol edilen dosyalar, commitler, testler ve kaynaklar**
+- **Önceki gerçek durum**
+- **Yapılan gerçek değişiklik / uygulanan işlem**
+- **Dikkat edilen riskler, kısıtlar ve proje anayasası kuralları**
+- **Çalıştırılan veya doğrulanan testler**
+- **Test sonucu**
+- **CI sonucu**
+- **APK/build/artifact sonucu** (etkileniyorsa)
+- **GitHub commit SHA / ilgili doğrulama**
+- **Nihai sonuç: BAŞARILI / BAŞARISIZ / BEKLİYOR / KULLANICI DOĞRULAMASI**
+- **Başarısızlık varsa gerçek hata, nedeni ve uygulanan düzeltme**
+- **Yapılmayan veya henüz doğrulanmayan şeyler**
+- **Sonraki adım / açık iş**
+
+**BAŞARISIZ İŞLEMLER DE MUTLAKA KAYDEDİLECEK; SİLİNMEYECEK, GİZLENMEYECEK VE BAŞARILI GİBİ GÖSTERİLMEYECEKTİR.** Düzeltme yapıldıysa önceki başarısız kayıt korunacak, ardından yeni kayıtla düzeltmenin sonucu yazılacaktır.
+
+**TEST SONUCU İLE KULLANICI RAPORU BİRBİRİNE KARIŞTIRILMAYACAKTIR.** Gerçek cihaz kullanıcısı tarafından bildirilen sonuç `KULLANICI DOĞRULAMASI` olarak; CI/emülatör sonucu ise ayrı olarak kaydedilecektir. Logcat, ekran kaydı veya ölçüm yoksa bunlar varmış gibi istatistik üretilmeyecektir.
+
+**CI, APK, artifact, commit veya GitHub durumu yalnızca gerçekten kontrol edildiğinde başarılı/başarısız olarak yazılacaktır.** Sonucu henüz belli olmayan işlem `BEKLİYOR` olarak kaydedilecektir.
+
+**HER İŞLEM TAMAMLANMADAN SONRAKİ İŞE GEÇİLMEYECEKTİR.** İşlem yarım kaldıysa log'a mevcut durum ve kalan adım yazılacak; yeni oturumda önce bu yarım iş tamamlanacaktır.
+
 ## 1. Gerçeklik standardı
 
 - Yapılmayan iş yapılmış gibi anlatılmaz.
