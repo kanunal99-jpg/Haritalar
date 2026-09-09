@@ -320,3 +320,21 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **CI/APK:** Bu dokümantasyon değişikliği için henüz yeni CI sonucu doğrulanmadı.
 - **Sonuç:** Recovery olayı kalıcı log'a işlendi.
 - **Sonraki adım:** Yeni HEAD'i doğrula ve teknik traffic task coalescing çalışmasına devam et.
+
+## İşlem #0103 — Navigation traffic refresh task coalescing gate
+
+- **Tarih:** 2026-09-09
+- **Tür:** Kod / performans / dayanıklılık
+- **Amaç:** GPS callback'in her konum güncellemesinde `routeExecutor` kuyruğuna yeni trafik refresh task'ı bırakmasını engellemek.
+- **Önceki gerçek durum:** `TrafficRefreshCoordinator` zaten tek bir ranking işlemini `inFlight` ile koruyordu; ancak MainActivity tarafında aynı anda bekleyen executor task'ları yine de oluşabiliyordu. Bu task'lar daha sonra coordinator tarafından `Skipped` dönebilse de gereksiz executor kuyruğu yaratabiliyordu.
+- **Yapılan:** `MainActivity.kt` içine `AtomicBoolean trafficRefreshTaskInFlight` eklendi. `refreshTrafficForNavigation()` artık task submit edilmeden önce atomik `compareAndSet(false, true)` ile tekil task kapısı uyguluyor. Task tamamlandığında `finally` ile kapı serbest bırakılıyor. Executor task submit reddederse gate güvenli şekilde sıfırlanıyor ve uyarı loglanıyor.
+- **Ek güvenlik:** Activity destroy sırasında gate temizleniyor.
+- **Değişen dosya:** `app/src/main/java/com/haritalar/app/MainActivity.kt`
+- **Commit:** `b37178681b9b52f33358ee95ef757ae2c67c6fa1`
+- **Commit mesajı:** `perf: coalesce navigation traffic refresh tasks`
+- **GitHub doğrulaması:** Değişen dosyanın blob SHA'sı `706b17f8800d383c81c434d2b0c1ffe020423c98` olarak doğrulandı; `AtomicBoolean` import'u ve yeni gate alanı GitHub'daki dosyada mevcut.
+- **Test:** Yerel Android build çalıştırılmadı; GitHub Actions build doğrulaması bekleniyor.
+- **CI:** Run `343` / Run ID `34342979779` `in_progress` durumunda gözlendi; sonuç henüz kesinleşmedi.
+- **APK:** Henüz doğrulanmadı.
+- **Sonuç:** Kod değişikliği gerçek GitHub'a yazıldı ve doğrulandı; CI sonucu bekleniyor.
+- **Sonraki adım:** Run `343` sonucunu doğrula. Başarılıysa APK artifact'i kontrol et; başarısızsa job logundan gerçek derleme hatasını düzelt.
