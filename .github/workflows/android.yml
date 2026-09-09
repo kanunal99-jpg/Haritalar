@@ -11,10 +11,21 @@ on:
 permissions:
   contents: write
 
+env:
+  TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
+      - name: Verify live traffic credential is configured
+        run: |
+          if [ -z "$TOMTOM_API_KEY" ]; then
+            echo "TOMTOM_API_KEY GitHub Actions secret is missing; refusing to build an APK that silently falls back to blue/no-data traffic."
+            exit 1
+          fi
+          echo "TOMTOM_API_KEY is configured (value intentionally not printed)."
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
