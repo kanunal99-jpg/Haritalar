@@ -21,6 +21,29 @@ class TrafficProviderChainTest {
     }
 
     @Test
+    fun skipsFailingHigherPriorityProviderAndUsesNextLiveProvider() {
+        val failing = object : TrafficProvider {
+            override val id = "failing"
+            override val priority = 100
+            override fun supports(coordinate: GeoCoordinate) = true
+            override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?): TrafficSnapshot {
+                error("provider unavailable")
+            }
+        }
+        val backup = FakeProvider("backup", 50, TrafficSnapshot("backup", emptyList(), 1, 10_000, TrafficConfidence.MEDIUM))
+        val chain = TrafficProviderChain(listOf(failing, backup))
+        assertEquals("backup", runSuspend { chain.fetch(coordinate, bounds, null, 100) }?.providerId)
+    }
+
+    @Test
+    fun rejectsMismatchedProviderIdAndUsesNextLiveProvider() {
+        val wrongIdentity = FakeProvider("declared", 100, TrafficSnapshot("different", emptyList(), 1, 10_000, TrafficConfidence.HIGH))
+        val backup = FakeProvider("backup", 50, TrafficSnapshot("backup", emptyList(), 1, 10_000, TrafficConfidence.MEDIUM))
+        val chain = TrafficProviderChain(listOf(wrongIdentity, backup))
+        assertEquals("backup", runSuspend { chain.fetch(coordinate, bounds, null, 100) }?.providerId)
+    }
+
+    @Test
     fun skipsExpiredLiveDataAndUsesCache() {
         val live = FakeProvider("live", 100, TrafficSnapshot("live", emptyList(), 1, 50, TrafficConfidence.HIGH))
         val cached = TrafficSnapshot("cache", emptyList(), 1, 10_000, TrafficConfidence.MEDIUM)
