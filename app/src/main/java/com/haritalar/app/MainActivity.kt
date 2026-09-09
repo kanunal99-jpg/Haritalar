@@ -96,6 +96,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         coordinator = trafficRefreshCoordinator,
         rankingService = trafficRankingService,
         backgroundExecutor = routeExecutor,
+        currentGeneration = { routeGeneration.toLong() },
         onRefreshed = { ranked ->
             runOnUiThread { applyTrafficRankedSnapshot(ranked) }
         },
