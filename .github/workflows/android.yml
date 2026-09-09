@@ -55,9 +55,9 @@ jobs:
         if: always()
         run: |
           mkdir -p app/build/ci-diagnostics
-          adb devices -l > app/build/ci-diagnostics/adb-devices.txt || true
-          adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat.txt || true
-          find app/build/reports/androidTests -type f -maxdepth 6 -print > app/build/ci-diagnostics/android-test-report-files.txt 2>/dev/null || true
+          timeout 30s adb devices -l > app/build/ci-diagnostics/adb-devices.txt || true
+          timeout 30s adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat.txt || true
+          timeout 30s find app/build/reports/androidTests -maxdepth 6 -type f -print > app/build/ci-diagnostics/android-test-report-files.txt 2>/dev/null || true
 
       - name: Upload Android instrumentation diagnostics
         if: always()
