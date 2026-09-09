@@ -14,6 +14,7 @@ import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.maplibre.android.maps.MapView
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
@@ -49,6 +50,7 @@ class MainActivitySmokeTest {
         }
         try {
             assertInitialControls(first)
+            assertMapViewCreated(first)
         } finally {
             first.close()
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
@@ -70,6 +72,7 @@ class MainActivitySmokeTest {
                 }
             }
             assertInitialControls(second)
+            assertMapViewCreated(second)
         } catch (error: Throwable) {
             throw AssertionError("Second MainActivity launch succeeded but controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
@@ -89,6 +92,15 @@ class MainActivitySmokeTest {
         }
     }
 
+    private fun assertMapViewCreated(scenario: ActivityScenario<MainActivity>) {
+        scenario.onActivity { activity ->
+            val content = activity.findViewById<ViewGroup>(android.R.id.content)
+            check(findMapView(content) != null) {
+                "MapLibre MapView was not created in the activity view hierarchy"
+            }
+        }
+    }
+
     private fun findViewWithHint(root: View, hint: String): EditText? {
         if (root is EditText && root.hint?.toString() == hint) return root
         if (root !is ViewGroup) return null
@@ -103,6 +115,15 @@ class MainActivitySmokeTest {
         if (root !is ViewGroup) return null
         for (index in 0 until root.childCount) {
             findTextView(root.getChildAt(index), text)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findMapView(root: View): MapView? {
+        if (root is MapView) return root
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findMapView(root.getChildAt(index))?.let { return it }
         }
         return null
     }
