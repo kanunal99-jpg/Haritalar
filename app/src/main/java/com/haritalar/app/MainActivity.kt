@@ -51,6 +51,7 @@ import java.net.URLEncoder
 import java.util.Collections
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlin.math.*
 
@@ -79,6 +80,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var locationComponent: LocationComponent? = null
     private var livePoiLayer: LiveNavigationPoiLayer? = null
     private val routeExecutor = Executors.newFixedThreadPool(4)
+    private val trafficRefreshTaskInFlight = AtomicBoolean(false)
     private var lastLocation: Location? = null
     private var destination: LatLng? = null
     private var routePoints: List<LatLng> = emptyList()
@@ -560,6 +562,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val generation = routeGeneration
         val routes = trafficRouteOptions
         if (routes.isEmpty()) return
+        if (!trafficRefreshTaskInFlight.compareAndSet(false, true)) return
         val candidates = routes.map { option ->
             TrafficRouteRanking.RouteCandidate(
                 routeId = routeSignature(option),
@@ -567,27 +570,36 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 baseDurationSeconds = option.durationSeconds.coerceAtLeast(0.0).roundToLong(),
             )
         }
-        routeExecutor.execute {
-            val result = runCatching {
-                trafficRefreshCoordinator.refreshBlocking(
-                    routes = candidates,
-                    nowEpochMs = System.currentTimeMillis(),
-                ) { rankingRoutes, nowEpochMs ->
-                    trafficRankingService.rank(rankingRoutes, nowEpochMs)
+        try {
+            routeExecutor.execute {
+                try {
+                    val result = runCatching {
+                        trafficRefreshCoordinator.refreshBlocking(
+                            routes = candidates,
+                            nowEpochMs = System.currentTimeMillis(),
+                        ) { rankingRoutes, nowEpochMs ->
+                            trafficRankingService.rank(rankingRoutes, nowEpochMs)
+                        }
+                    }.getOrNull() ?: return@execute
+                    val ranked = when (result) {
+                        is TrafficRefreshCoordinator.Result.Refreshed -> result.ranked
+                        is TrafficRefreshCoordinator.Result.Skipped -> result.ranked
+                        is TrafficRefreshCoordinator.Result.Stale -> return@execute
+                    }
+                    val trafficByRoute = ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
+                        .associate { (candidate, model) -> candidate.routeId to model }
+                    runOnUiThread {
+                        if (generation == routeGeneration && navigationActive) {
+                            lastTrafficByRoute = trafficByRoute
+                        }
+                    }
+                } finally {
+                    trafficRefreshTaskInFlight.set(false)
                 }
-            }.getOrNull() ?: return@execute
-            val ranked = when (result) {
-                is TrafficRefreshCoordinator.Result.Refreshed -> result.ranked
-                is TrafficRefreshCoordinator.Result.Skipped -> result.ranked
-                is TrafficRefreshCoordinator.Result.Stale -> return@execute
             }
-            val trafficByRoute = ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
-                .associate { (candidate, model) -> candidate.routeId to model }
-            runOnUiThread {
-                if (generation == routeGeneration && navigationActive) {
-                    lastTrafficByRoute = trafficByRoute
-                }
-            }
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            trafficRefreshTaskInFlight.set(false)
+            Log.w("MainActivity", "Navigation traffic refresh task reddedildi", e)
         }
     }
 
@@ -993,6 +1005,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         stopLocationUpdates()
         livePoiLayer?.destroy()
         routeExecutor.shutdownNow()
+        trafficRefreshTaskInFlight.set(false)
         mapView.onDestroy()
         if (::tts.isInitialized) { tts.stop(); tts.shutdown() }
         super.onDestroy()
