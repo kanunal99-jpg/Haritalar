@@ -22,9 +22,15 @@ Her `Devam` veya herhangi bir proje operasyonundan **önce** mutlaka:
 14. **Yapılan işlemi, en küçük değişiklik dahil, `docs/PROJECT_ACTIVITY_LOG.md` içine yaz.**
 15. Proje durumu değiştiyse `PROJECT_DETAILS.md` ve gerekirse bu dosyayı güncelle.
 
+### 🚨 HER YENİ SOHBET BAŞLANGICINDA ÖNCEKİ SON SOHBET KONTROLÜ ZORUNLUDUR 🚨
+
+**HER YENİ SOHBET BAŞLANGICINDA ÖNCEKİ SON SOHBETE GERÇEK ZAMANLI OLARAK DÖNÜLECEK; SON SOHBET BAŞTAN AŞAĞI OKUNACAK, SON KONU, SON YAPILAN İŞLEM, YARIM KALAN İŞLER, BEKLEYEN TESTLER, CI/APK DURUMU VE VERİLEN YENİ TALİMATLAR KONTROL EDİLECEK. ARDINDAN GITHUB'UN GERÇEK DURUMU İLE KARŞILAŞTIRILACAK VE ANCAK BUNDAN SONRA GELİŞTİRMEYE DEVAM EDİLECEK.**
+
+**YENİ SOHBETTE ESKİ İŞ BİTMEDEN YENİ İŞE GEÇİLMEYECEK. ÖNCEKİ SOHBETTE YARIM KALAN İŞ, TEST, CI, APK, HATA VEYA DOĞRULAMA VARSA ÖNCELİKLE O TAMAMLANACAK.**
+
 Ana döngü:
 
-`DOSYALARI OKU → GEÇMİŞİ KONTROL ET → GITHUB GERÇEKLİĞİ → PLANLA → EN KRİTİK GERÇEK EKSİK → DEĞİŞTİR → TEST → COMMIT → GITHUB DOĞRULAMA → CI → APK → LOG → HAFIZAYI SENKRONİZE ET`
+`SON SOHBETİ GERÇEK ZAMANLI KONTROL ET → DOSYALARI OKU → GEÇMİŞİ KONTROL ET → GITHUB GERÇEKLİĞİ → PLANLA → EN KRİTİK GERÇEK EKSİK → DEĞİŞTİR → TEST → COMMIT → GITHUB DOĞRULAMA → CI → APK → LOG → HAFIZAYI SENKRONİZE ET`
 
 **Bir virgül/noktalama değişikliği dahi işlem olarak kabul edilir ve günlüğe kaydedilir.** Başarısız denemeler de kaydedilir; silinmez.
 
@@ -116,7 +122,7 @@ Aktif route seti `trafficRouteOptions` olarak tutulur. Sonuç yalnız aynı gene
 
 Navigation refresh submit tarafında `trafficRefreshTaskInFlight` atomik gate'i aynı anda birden fazla bekleyen executor task'ını engeller. Coordinator'ın mevcut `inFlight` ve 60 saniyelik cooldown koruması ikinci savunma katmanı olarak korunur.
 
-Yeni hedef/routing `reset()` ile eski traffic state'ini temizler. Off-route/reroute generation artırır, coordinator resetlenir ve yeni rota için kontrollü refresh başlar. Arrival/stop traffic state'i temizler.
+Yeni hedef/routing `reset()` ile eski traffic state'ini temizler. Off-route/reroute generation artırır, coordinator resetlenir ve yeni rota için kontrollü refresh başlar. Arrival/stop traffic state'i temizlenir.
 
 ## 10. Geçmişten bugüne doğrulanmış teknik zincir
 
