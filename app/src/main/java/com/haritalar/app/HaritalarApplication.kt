@@ -53,8 +53,9 @@ class HaritalarApplication : Application() {
     }
 
     private fun postActivityTask(activity: Activity, task: Runnable, delayMillis: Long = 0L) {
-        val trackedTask = Runnable {
-            synchronized(activityCallbacks) { activityCallbacks[activity]?.remove(this) }
+        lateinit var trackedTask: Runnable
+        trackedTask = Runnable {
+            synchronized(activityCallbacks) { activityCallbacks[activity]?.remove(trackedTask) }
             task.run()
         }
         synchronized(activityCallbacks) {
