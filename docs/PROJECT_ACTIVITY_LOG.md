@@ -288,3 +288,35 @@ Her işlem mümkün olduğunca şu alanları içerir:
 
 - **Durum:** BEKLEMEDE
 - **Not:** Bir sonraki gerçek geliştirme başlamadan önce üç hafıza dosyası okunacak ve GitHub HEAD yeniden doğrulanacaktır. Bu satır plan/şablondur; gerçek işlem yapılmış sayılmaz.
+
+## İşlem #0101 — MainActivity yanlışlıkla placeholder ile değiştirilmesi ve geri alınması
+
+- **Tarih:** 2026-09-09
+- **Tür:** HATA / RECOVERY / GitHub operasyonu
+- **Amaç:** Navigation traffic refresh executor task-submit davranışını incelemek amacıyla `MainActivity.kt` üzerinde çalışma başlatılması.
+- **Önceki durum:** `main` HEAD `503f3d7ffafc87cbe99c421d1f3cf80fa8fb809c` idi ve `MainActivity.kt` blob SHA `5d052bf1d7f7fdebcb3508e9124a4b49123b1966` olarak doğrulanmıştı.
+- **Hata:** GitHub write işlemi sırasında `MainActivity.kt` içeriği yanlışlıkla `__PLACEHOLDER__` ile değiştirildi.
+- **Hatalı commit:** `ae493b6b45444df62d41d5bf3ad5241db8101144`
+- **Hatalı commit mesajı:** `perf: coalesce navigation traffic refresh tasks`
+- **Gerçek etki:** `MainActivity.kt` 1000 satırlık mevcut içerikten placeholder'a düşürüldü. Bu değişiklik gerçek özellik olarak kabul edilmedi.
+- **Recovery:** Önceki commit `503f3d7ffafc87cbe99c421d1f3cf80fa8fb809c` ve orijinal `MainActivity.kt` blob'u yeniden doğrulandı. Eski tree taban alınarak `MainActivity.kt` orijinal blob SHA'sına geri getirildi.
+- **Recovery commit:** `a467415ff40862bc7ad89b79cd1cc0eca25bf45c`
+- **Recovery mesajı:** `revert: restore MainActivity after accidental overwrite`
+- **Recovery doğrulaması:** `main` HEAD `a467415ff40862bc7ad89b79cd1cc0eca25bf45c`; recovery tree SHA `ec51c05e6cf7aa98ab427640fae04c0603fb3adb`; `MainActivity.kt` tekrar blob SHA `5d052bf1d7f7fdebcb3508e9124a4b49123b1966`.
+- **Kod değişikliği:** Planlanan traffic coalescing gate bu işlemde uygulanmadı.
+- **Test:** Bu recovery sonrasında henüz Android build/unit test çalıştırılmadı.
+- **CI:** Recovery commit için henüz doğrulanmadı.
+- **APK:** Recovery commit için yeni APK doğrulanmadı.
+- **Sonuç:** Hatalı overwrite geri alındı; önceki uygulama kodu restore edildi. Olay gizlenmedi ve kayda geçirildi.
+- **Öğrenim:** Büyük dosya üzerinde full-content GitHub update işlemi, içerik tamamen elde edilip doğrulanmadan kullanılmamalı. Bundan sonraki değişikliklerde küçük/deterministik dosya veya güvenli tree/blob yaklaşımı tercih edilecek.
+- **Sonraki adım:** Recovery sonrası HEAD ve ilgili dosyaları tekrar doğrulamak; ardından task queue problemini güvenli şekilde ele almak.
+
+## İşlem #0102 — Activity log'un recovery olayını içerecek şekilde güncellenmesi
+
+- **Tür:** Dokümantasyon / operasyon günlüğü
+- **Amaç:** #0101 recovery olayını append-only proje hafızasına eklemek.
+- **Yapılan:** Mevcut `docs/PROJECT_ACTIVITY_LOG.md` içeriği korunarak #0101 ve #0102 kayıtları sona eklendi.
+- **Test:** İçerik değişikliğinin GitHub commit'i oluşturulması bekleniyor.
+- **CI/APK:** Bu dokümantasyon değişikliği için henüz yeni CI sonucu doğrulanmadı.
+- **Sonuç:** Recovery olayı kalıcı log'a işlendi.
+- **Sonraki adım:** Yeni HEAD'i doğrula ve teknik traffic task coalescing çalışmasına devam et.
