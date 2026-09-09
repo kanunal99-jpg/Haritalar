@@ -386,7 +386,22 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **Commit:** `161098fa08712ed80c19fb0006beb61331235778`
 - **Commit mesajı:** `test(traffic): cover coordinator generation and in-flight races`
 - **Yerel test:** Bu ortamda Android/Gradle build çalıştırılmadı.
-- **CI:** Bu commit için yeni GitHub Actions sonucu henüz doğrulanmadı.
+- **CI:** Run `348` / Run ID `34344278516` `completed/failure` oldu. `Unit tests` adımında Kotlin derleme hatası oluştu; APK build/upload adımları bu nedenle `skipped` kaldı.
+- **Hata:** `TrafficRefreshCoordinatorTest.kt:155` civarında `secondResult.get().ranked` ifadesinde sealed `Result` tipinin ortak `ranked` alanı olmadığı için Kotlin tipi çıkaramadı; ayrıca `ranked` unresolved reference raporlandı.
+- **Sonuç:** İlk test değişikliği derleme hatası verdi; hata gerçek CI logundan tespit edildi ve gizlenmedi.
+- **Sonraki adım:** Hatalı test assertion'ını açık `Skipped` tipine daraltarak düzeltmek ve yeni CI sonucunu doğrulamak.
+
+## İşlem #0108 — Coordinator yarış testi derleme hatasının düzeltilmesi
+
+- **Tarih:** 2026-09-09
+- **Tür:** Bug fix / test
+- **Amaç:** Run `348`'de görülen Kotlin sealed-result tip çıkarımı hatasını düzeltmek.
+- **Yapılan:** `secondResult.get().ranked` doğrudan erişimi kaldırıldı; `assertIs<TrafficRefreshCoordinator.Result.Skipped>(...)` dönüşü `skipped` değişkenine alınarak `skipped.ranked` üzerinden tip güvenli assertion yapıldı.
+- **Değişen dosya:** `core/src/test/kotlin/com/haritalar/core/traffic/TrafficRefreshCoordinatorTest.kt`
+- **Commit:** `a55b1387df2e78d83108a9a37a63223822363843`
+- **Commit mesajı:** `fix(traffic): correct coordinator race test typing`
+- **Yerel test:** Bu ortamda Android/Gradle build çalıştırılmadı.
+- **CI:** Yeni run bu commit için henüz sonuçlanmadı.
 - **APK:** Henüz doğrulanmadı.
-- **Sonuç:** Race/stale coverage gerçek GitHub'a işlendi. Üretim kodunda değişiklik yapılmadı; mevcut coordinator davranışının sınırları testlerle güçlendirildi.
-- **Sonraki adım:** Bu commitin CI sonucunu doğrula; başarılıysa APK artifactini kontrol et. Ardından `PROJECT_DETAILS.md` ve çalışma promptundaki backlog'u yeni test kapsamıyla senkronize et.
+- **Sonuç:** CI'da tespit edilen gerçek derleme hatası hedefli olarak düzeltildi.
+- **Sonraki adım:** `a55b1387df2e78d83108a9a37a63223822363843` için Android APK workflow sonucunu kontrol et; başarısızsa yeni log üzerinden düzelt.
