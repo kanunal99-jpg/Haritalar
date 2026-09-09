@@ -338,3 +338,35 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **APK:** Henüz doğrulanmadı.
 - **Sonuç:** Kod değişikliği gerçek GitHub'a yazıldı ve doğrulandı; CI sonucu bekleniyor.
 - **Sonraki adım:** Run `343` sonucunu doğrula. Başarılıysa APK artifact'i kontrol et; başarısızsa job logundan gerçek derleme hatasını düzelt.
+
+## İşlem #0104 — PROJECT_DETAILS senkronizasyonu
+
+- **Tarih:** 2026-09-09
+- **Tür:** Dokümantasyon / proje hafızası
+- **Amaç:** Coalescing gate ve recovery olayını ana teknik hafızaya geçirmek; eski P1 maddelerini güncel durumla uyumlu hale getirmek.
+- **Yapılan:** `PROJECT_DETAILS.md` güncellendi; performans bölümüne caller-side atomik gate, geçmişe coalescing commit'i ve overwrite/recovery öğrenimi eklendi; backlog gerçek durumla senkronize edildi.
+- **Commit:** `8c1c9842beea4dc15e456a0c053baaa23361b7df`
+- **Test:** Dokümantasyon değişikliğinde uygulama testi çalıştırılmadı.
+- **CI:** Bu commit için yeni CI tetiklendi; sonradan doğrulanacak.
+- **APK:** Dokümantasyon commit'i için yeni APK sonucu henüz doğrulanmadı.
+- **Sonuç:** Başarılı GitHub yazımı ve commit.
+
+## İşlem #0105 — PROJECT_WORK_PROMPT senkronizasyonu
+
+- **Tarih:** 2026-09-09
+- **Tür:** Dokümantasyon / çalışma anayasası
+- **Amaç:** Zorunlu çalışma promptunun navigation traffic submit zincirindeki yeni gate'i ve güncel sonraki hedefi yansıtması.
+- **Yapılan:** `PROJECT_WORK_PROMPT.md` güncellendi. Navigation zincirine `AtomicBoolean` caller-side gate eklendi; büyük dosya full-content overwrite yasağı açıklaştırıldı; sonraki hedef CI/APK doğrulaması ve gerçek device/performance profiling olarak güncellendi.
+- **Commit:** `4b2865a86abf8490fd997e952e59f85539df6104`
+- **Test:** Dokümantasyon değişikliğinde uygulama testi çalıştırılmadı.
+- **CI:** Run `346` / ID `34343140564` `queued` olarak gözlendi.
+- **APK:** Henüz doğrulanmadı.
+- **Sonuç:** Başarılı GitHub yazımı ve commit.
+
+## İşlem #0106 — Activity log ile ana hafıza senkronu
+
+- **Tarih:** 2026-09-09
+- **Tür:** Dokümantasyon / operasyon günlüğü
+- **Amaç:** #0104 ve #0105 operasyonlarını append-only activity log'a kaydetmek.
+- **Yapılan:** Bu kayıt eklendi.
+- **Sonraki CI:** Bu log commit'i yeni Android APK workflow run'ı tetikleyecektir.
