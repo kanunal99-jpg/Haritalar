@@ -1,0 +1,284 @@
+name: Apply verified traffic map colors
+
+on:
+  push:
+    paths:
+      - .github/workflows/apply-traffic-map-live-colors.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Apply verified traffic map presentation
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          main = Path("app/src/main/java/com/haritalar/app/MainActivity.kt")
+          text = main.read_text()
+
+          text = text.replace(
+              'import com.haritalar.core.traffic.TrafficRefreshCoordinator\nimport com.haritalar.core.traffic.TrafficRouteRanking\n',
+              'import com.haritalar.core.traffic.TrafficRefreshCoordinator\nimport com.haritalar.core.traffic.TrafficRouteMapPresentation\nimport com.haritalar.core.traffic.TrafficRouteRanking\nimport com.haritalar.core.traffic.TrafficRouteSegment\n',
+          )
+          text = text.replace(
+              '        private const val ROUTE_LAYER = "haritalar-route-layer"\n',
+              '        private const val ROUTE_LAYER = "haritalar-route-layer"\n        private const val TRAFFIC_ROUTE_SOURCE_PREFIX = "haritalar-traffic-route-source-"\n        private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"\n',
+          )
+          text = text.replace(
+              '    private var lastTrafficByRoute: Map<String, RouteTrafficUiModel> = emptyMap()\n',
+              '    private var lastTrafficByRoute: Map<String, RouteTrafficUiModel> = emptyMap()\n    private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()\n',
+          )
+          text = text.replace('        lastTrafficByRoute = emptyMap()\n', '        lastTrafficByRoute = emptyMap()\n        lastTrafficSegmentsByRoute = emptyMap()\n')
+
+          old = '''                    val trafficByRoute = result.getOrNull()?.let { coordinatorResult ->
+                        when (coordinatorResult) {
+                            is TrafficRefreshCoordinator.Result.Refreshed -> coordinatorResult.ranked
+                            is TrafficRefreshCoordinator.Result.Skipped -> coordinatorResult.ranked
+                            is TrafficRefreshCoordinator.Result.Stale -> emptyList()
+                        }.let { ranked ->
+                            ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
+                                .associate { (candidate, model) -> candidate.routeId to model }
+                        }
+                    }.orEmpty()
+                    lastTrafficByRoute = trafficByRoute
+                    if (!navigationActive) renderRouteOptions(snapshot, trafficByRoute)
+'''
+          new = '''                    val trafficByRoute = result.getOrNull()?.let { coordinatorResult ->
+                        when (coordinatorResult) {
+                            is TrafficRefreshCoordinator.Result.Refreshed -> coordinatorResult.ranked
+                            is TrafficRefreshCoordinator.Result.Skipped -> coordinatorResult.ranked
+                            is TrafficRefreshCoordinator.Result.Stale -> emptyList()
+                        }.let { ranked ->
+                            ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
+                                .associate { (candidate, model) -> candidate.routeId to model }
+                        }
+                    }.orEmpty()
+                    lastTrafficByRoute = trafficByRoute
+                    if (!navigationActive) {
+                        val detailedSegments = runCatching {
+                            trafficRankingService.rankDetailed(
+                                snapshot.map { option ->
+                                    TrafficRouteRanking.RouteCandidate(
+                                        routeId = routeSignature(option),
+                                        coordinates = option.points.map { GeoCoordinate(it.latitude, it.longitude) },
+                                        baseDurationSeconds = option.durationSeconds.coerceAtLeast(0.0).roundToLong(),
+                                    )
+                                },
+                                System.currentTimeMillis(),
+                            ).matchedSegmentsByRoute
+                        }.getOrDefault(emptyMap())
+                        lastTrafficSegmentsByRoute = detailedSegments
+                        renderRouteOptions(snapshot, trafficByRoute)
+                    }
+'''
+          if old not in text:
+              raise SystemExit('route-options traffic block not found')
+          text = text.replace(old, new, 1)
+
+          old = '''                    val trafficByRoute = ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
+                        .associate { (candidate, model) -> candidate.routeId to model }
+                    runOnUiThread {
+                        if (generation == routeGeneration && navigationActive) {
+                            lastTrafficByRoute = trafficByRoute
+                        }
+                    }
+'''
+          new = '''                    val trafficByRoute = ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
+                        .associate { (candidate, model) -> candidate.routeId to model }
+                    val detailedSegments = runCatching {
+                        trafficRankingService.rankDetailed(candidates, System.currentTimeMillis()).matchedSegmentsByRoute
+                    }.getOrDefault(emptyMap())
+                    runOnUiThread {
+                        if (generation == routeGeneration && navigationActive) {
+                            lastTrafficByRoute = trafficByRoute
+                            lastTrafficSegmentsByRoute = detailedSegments
+                            routePoints.takeIf { it.size >= 2 }?.let { drawRoute(it, detailedSegments[routeSignatureForCurrentRoute()] ?: emptyList()) }
+                        }
+                    }
+'''
+          if old not in text:
+              raise SystemExit('navigation traffic block not found')
+          text = text.replace(old, new, 1)
+
+          text = text.replace('        drawRoute(option.points)\n', '        drawRoute(option.points, lastTrafficSegmentsByRoute[routeSignature(option)].orEmpty())\n', 1)
+
+          old = '''    private fun drawRoute(points: List<LatLng>) {
+        mapView.getMapAsync { map ->
+            val style = map.style
+            if (style != null) {
+                style.removeLayer(ROUTE_LAYER)
+                style.removeSource(ROUTE_SOURCE)
+                if (points.size >= 2) {
+                    val coords = points.map { org.maplibre.geojson.Point.fromLngLat(it.longitude, it.latitude) }
+                    style.addSource(GeoJsonSource(ROUTE_SOURCE, Feature.fromGeometry(LineString.fromLngLats(coords))))
+                    style.addLayer(LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(6f), lineColor("#1976D2")))
+                }
+            }
+        }
+    }
+'''
+          new = '''    private fun routeSignatureForCurrentRoute(): String =
+        if (routePoints.isEmpty()) "" else routeSignature(
+            RouteOption(
+                title = "",
+                subtitle = "",
+                points = routePoints,
+                cumulativeMeters = routeCumulativeMeters,
+                totalMeters = routeTotalMeters,
+                distanceKm = routeTotalMeters / 1000.0,
+                durationSeconds = 0.0,
+                toll = false,
+                tollAmountTry = null,
+                tollName = null,
+                ferryUsed = false,
+                maneuvers = currentManeuvers,
+            ),
+        )
+
+    private fun drawRoute(points: List<LatLng>, trafficSegments: List<TrafficRouteSegment> = emptyList()) {
+        mapView.getMapAsync { map ->
+            val style = map.style ?: return@getMapAsync
+            style.removeLayer(ROUTE_LAYER)
+            style.removeSource(ROUTE_SOURCE)
+            TrafficRouteMapPresentation.Severity.values().forEach { severity ->
+                style.removeLayer(TRAFFIC_ROUTE_LAYER_PREFIX + severity.name.lowercase(Locale.US))
+                style.removeSource(TRAFFIC_ROUTE_SOURCE_PREFIX + severity.name.lowercase(Locale.US))
+            }
+            if (points.size < 2) return@getMapAsync
+
+            val coords = points.map { org.maplibre.geojson.Point.fromLngLat(it.longitude, it.latitude) }
+            style.addSource(GeoJsonSource(ROUTE_SOURCE, Feature.fromGeometry(LineString.fromLngLats(coords))))
+            style.addLayer(LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(6f), lineColor("#1976D2")))
+
+            TrafficRouteMapPresentation.Severity.values().forEach { severity ->
+                val features = trafficSegments
+                    .filter { TrafficRouteMapPresentation.severityOf(it.traffic) == severity }
+                    .mapNotNull { segment ->
+                        val geometry = segment.traffic.geometry
+                        if (geometry.size < 2) return@mapNotNull null
+                        Feature.fromGeometry(
+                            LineString.fromLngLats(geometry.map { point ->
+                                org.maplibre.geojson.Point.fromLngLat(point.longitude, point.latitude)
+                            }),
+                        )
+                    }
+                if (features.isEmpty()) return@forEach
+                val key = severity.name.lowercase(Locale.US)
+                val sourceId = TRAFFIC_ROUTE_SOURCE_PREFIX + key
+                val layerId = TRAFFIC_ROUTE_LAYER_PREFIX + key
+                style.addSource(GeoJsonSource(sourceId, org.maplibre.geojson.FeatureCollection.fromFeatures(features)))
+                style.addLayer(
+                    LineLayer(layerId, sourceId).withProperties(
+                        lineWidth(7f),
+                        lineColor(TrafficRouteMapPresentation.colorHex(severity)),
+                    ),
+                )
+            }
+        }
+    }
+'''
+          if old not in text:
+              raise SystemExit('drawRoute block not found')
+          text = text.replace(old, new, 1)
+
+          main.write_text(text)
+          PY
+
+      - name: Add operation record
+        shell: bash
+        run: |
+          cat > docs/operations/OP-0402-traffic-route-map-live-colors.md <<'EOF'
+          # OP-0402 — Verified route traffic segment map colors
+
+          - Tarih: 2026-09-09
+          - Tür: Yeni kullanıcıya görünen özellik
+          - Amaç: Doğrulanmış ve geometri-eşleşmiş trafik segmentlerini rota üzerinde gerçek congestion seviyesine göre renklendirmek.
+          - Önceki durum: Rota çizgisi tek mavi LineLayer idi; trafik yalnızca rota kartı/ETA sıralamasında görünüyordu.
+          - Kaynak gerçekliği: `TrafficRouteRankingService.DetailedResult.matchedSegmentsByRoute` yalnızca kullanılabilir, güven seviyesi düşük olmayan ve rota geometrisiyle eşleşmiş provider segmentlerini döndürür. `TrafficSegment.congestion` provider verisidir; renkler bu alandan türetilir.
+          - Güvenlik: UNKNOWN trafik rengi üretilmez; temel rota mavi kalır. Trafik geometrisi yoksa overlay çizilmez. Bu değişiklik map-wide traffic eklemez ve canlı provider credential varmış gibi davranmaz.
+          - Yeni davranış: FREE=yeşil, LIGHT=sarı, MODERATE=turuncu, HEAVY=uyarı kırmızısı, SEVERE=koyu kırmızı. Renk yalnızca doğrulanmış matched provider geometry üzerinde gösterilir.
+          - Canlı kullanıcı kontrolü: BEKLEYOR — proje sahibi gerçek APK üzerinde kontrol etmelidir.
+          - Devam kuralı: Proje sahibi `KONTROL BAŞARILI` demeden map-wide traffic veya varış bayrağı gibi sonraki kullanıcı özelliklerine geçilmeyecek.
+          EOF
+
+      - name: Add presentation helper and tests
+        shell: bash
+        run: |
+          mkdir -p core/src/main/kotlin/com/haritalar/core/traffic
+          cat > core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentation.kt <<'EOF'
+          package com.haritalar.core.traffic
+
+          /** Maps only provider-declared congestion to visible route colors. */
+          object TrafficRouteMapPresentation {
+              enum class Severity { FREE, LIGHT, MODERATE, HEAVY, SEVERE }
+
+              fun severityOf(segment: TrafficSegment): Severity? = when {
+                  segment.closure -> Severity.SEVERE
+                  else -> when (segment.congestion) {
+                      TrafficCongestion.FREE -> Severity.FREE
+                      TrafficCongestion.LIGHT -> Severity.LIGHT
+                      TrafficCongestion.MODERATE -> Severity.MODERATE
+                      TrafficCongestion.HEAVY -> Severity.HEAVY
+                      TrafficCongestion.SEVERE -> Severity.SEVERE
+                      TrafficCongestion.UNKNOWN -> null
+                  }
+              }
+
+              fun colorHex(severity: Severity): String = when (severity) {
+                  Severity.FREE -> "#2E7D32"
+                  Severity.LIGHT -> "#F9A825"
+                  Severity.MODERATE -> "#FB8C00"
+                  Severity.HEAVY -> "#E53935"
+                  Severity.SEVERE -> "#B71C1C"
+              }
+          }
+          EOF
+          mkdir -p core/src/test/kotlin/com/haritalar/core/traffic
+          cat > core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentationTest.kt <<'EOF'
+          package com.haritalar.core.traffic
+
+          import kotlin.test.Test
+          import kotlin.test.assertEquals
+          import kotlin.test.assertNull
+
+          class TrafficRouteMapPresentationTest {
+              @Test
+              fun mapsProviderCongestionToExpectedSeverity() {
+                  assertEquals(TrafficRouteMapPresentation.Severity.FREE, TrafficRouteMapPresentation.severityOf(TrafficSegment("free", congestion = TrafficCongestion.FREE)))
+                  assertEquals(TrafficRouteMapPresentation.Severity.LIGHT, TrafficRouteMapPresentation.severityOf(TrafficSegment("light", congestion = TrafficCongestion.LIGHT)))
+                  assertEquals(TrafficRouteMapPresentation.Severity.MODERATE, TrafficRouteMapPresentation.severityOf(TrafficSegment("moderate", congestion = TrafficCongestion.MODERATE)))
+                  assertEquals(TrafficRouteMapPresentation.Severity.HEAVY, TrafficRouteMapPresentation.severityOf(TrafficSegment("heavy", congestion = TrafficCongestion.HEAVY)))
+                  assertEquals(TrafficRouteMapPresentation.Severity.SEVERE, TrafficRouteMapPresentation.severityOf(TrafficSegment("severe", congestion = TrafficCongestion.SEVERE)))
+              }
+
+              @Test
+              fun unknownTrafficProducesNoColor() {
+                  assertNull(TrafficRouteMapPresentation.severityOf(TrafficSegment("unknown")))
+              }
+
+              @Test
+              fun verifiedClosureIsSevere() {
+                  assertEquals(TrafficRouteMapPresentation.Severity.SEVERE, TrafficRouteMapPresentation.severityOf(TrafficSegment("closed", closure = true)))
+              }
+          }
+          EOF
+
+      - name: Commit source and operation record
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/haritalar/app/MainActivity.kt core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentation.kt core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentationTest.kt docs/operations/OP-0402-traffic-route-map-live-colors.md
+          git rm .github/workflows/apply-traffic-map-live-colors.yml
+          git commit -m "feat(traffic): render verified route segment colors"
+          git push origin main
