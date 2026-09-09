@@ -10,6 +10,7 @@ import kotlin.test.assertTrue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 class TrafficRefreshNavigationBridgeTest {
     @Test
@@ -81,16 +82,13 @@ class TrafficRefreshNavigationBridgeTest {
         val coordinator = TrafficRefreshCoordinator(minimumIntervalMs = 0L)
         val rankingService = TrafficRouteRankingService(TrafficProviderChain(emptyList()))
         val generation = AtomicLong(10L)
-        val queued = AtomicLong(0L)
+        val queuedTask = AtomicReference<Runnable?>()
         val callback = CountDownLatch(1)
 
         val bridge = TrafficRefreshNavigationBridge(
             coordinator = coordinator,
             rankingService = rankingService,
-            backgroundExecutor = java.util.concurrent.Executor { task ->
-                queued.set(1L)
-                task.run()
-            },
+            backgroundExecutor = java.util.concurrent.Executor { task -> queuedTask.set(task) },
             currentGeneration = generation::get,
             onRefreshed = { callback.countDown() },
         )
@@ -103,8 +101,8 @@ class TrafficRefreshNavigationBridgeTest {
         )
         generation.set(11L)
         bridge.onRouteChanged()
+        queuedTask.get()!!.run()
 
-        assertEquals(1L, queued.get())
         assertTrue(callback.await(200, TimeUnit.MILLISECONDS).not())
     }
 }
