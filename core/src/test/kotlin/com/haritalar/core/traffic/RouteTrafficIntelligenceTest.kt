@@ -74,6 +74,30 @@ class RouteTrafficIntelligenceTest {
     }
 
     @Test
+    fun `non-finite traffic speed does not affect eta`() {
+        val route = TrafficRouteIntelligence.RouteInput(
+            "r1",
+            900,
+            listOf(
+                TrafficRouteSegment(
+                    distanceMeters = 1_000.0,
+                    traffic = TrafficSegment(
+                        id = "invalid-speed",
+                        speedKmh = Double.POSITIVE_INFINITY,
+                        freeFlowSpeedKmh = 60.0,
+                        confidence = TrafficConfidence.HIGH,
+                    ),
+                ),
+            ),
+        )
+
+        val ranked = TrafficRouteIntelligence.rank(listOf(route))
+
+        assertEquals(900, ranked.single().adjustedDurationSeconds)
+        assertFalse(ranked.single().trafficApplied)
+    }
+
+    @Test
     fun `closed alternative loses to a clear alternative even without speed data`() {
         val closed = TrafficRouteIntelligence.RouteInput(
             routeId = "closed",
