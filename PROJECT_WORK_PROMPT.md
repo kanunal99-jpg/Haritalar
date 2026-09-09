@@ -110,11 +110,13 @@ GPS callback doğrudan provider/HTTP çağırmaz. Coordinator tetiklenir; rankin
 
 Zincir:
 
-`GPS → TrafficRefreshCoordinator → background executor → canonical ranking → routeGeneration guard → UI state`
+`GPS → caller-side AtomicBoolean gate → background executor → TrafficRefreshCoordinator → canonical ranking → routeGeneration guard → UI state`
 
-Aktif route seti `trafficRouteOptions` olarak tutulur. Sonuç yalnız aynı generation aktifse uygulanır. Navigation sırasında route kartı gereksiz yere yeniden açılmaz. `lastTrafficByRoute` cache'i güncellenir.
+Aktif route seti `trafficRouteOptions` olarak tutulur. Sonuç yalnız aynı generation aktifse uygulanır. Route kartları navigation sırasında gereksiz yere yeniden açılmaz. `lastTrafficByRoute` cache'i güncellenir.
 
-Yeni hedef/routing `reset()` ile eski traffic state'ini temizler. Off-route/reroute generation artırır, coordinator resetlenir ve yeni rota için kontrollü refresh başlar. Arrival/navigation stop traffic state'i temizler.
+Navigation refresh submit tarafında `trafficRefreshTaskInFlight` atomik gate'i aynı anda birden fazla bekleyen executor task'ını engeller. Coordinator'ın mevcut `inFlight` ve 60 saniyelik cooldown koruması ikinci savunma katmanı olarak korunur.
+
+Yeni hedef/routing `reset()` ile eski traffic state'ini temizler. Off-route/reroute generation artırır, coordinator resetlenir ve yeni rota için kontrollü refresh başlar. Arrival/stop traffic state'i temizler.
 
 ## 10. Geçmişten bugüne doğrulanmış teknik zincir
 
@@ -132,10 +134,13 @@ Yeni hedef/routing `reset()` ile eski traffic state'ini temizler. Off-route/rero
 - `7d18119cc1d309ee55bdd46ec85adcda3d6cd29b` — navigation integration.
 - `fe39634743175c4ca839314c6cda357e85bb69f1` — blocking bridge unit coverage.
 - `b43cb23605b37d446e58535ead260a2d4e39fe7d` — documentation sync.
+- `b37178681b9b52f33358ee95ef757ae2c67c6fa1` — navigation traffic refresh task coalescing gate.
+- `9b1110e355a258c4f3f2e267075695f3a0e26742` — activity log sync.
+- `8c1c9842beea4dc15e456a0c053baaa23361b7df` — project details sync.
 
 ## 11. CI / APK — güncel gerçek durum
 
-GitHub Actions'tan doğrulanmış güncel run:
+Önceden GitHub Actions'tan doğrulanmış güncel yeşil run:
 
 - Run: **335**
 - Run ID: `34339025583`
@@ -152,6 +157,8 @@ GitHub Actions'tan doğrulanmış güncel run:
 - Expiration: 2026-12-08.
 
 Bu CI sonucu APK artifact üretildiğini doğrular; fiziksel cihaz kurulumu/testi anlamına gelmez.
+
+Yeni traffic coalescing commit'i için Run `343` / ID `34342979779` başlatılmıştır; sonuç kesinleşmeden başarılı kabul edilmez.
 
 ## 12. Önceden doğrulanmış CI/APK
 
@@ -170,10 +177,10 @@ Bu CI sonucu APK artifact üretildiğini doğrular; fiziksel cihaz kurulumu/test
 
 ### P1
 
-5. GPS → coordinator → executor submit davranışında gereksiz task kuyruğu oluşup oluşmadığını ölç.
-6. Gerekirse atomik due/in-flight gate ekle.
-7. Traffic integration/smoke coverage artır.
-8. Generation/stale testlerini genişlet.
+5. GPS → coordinator → executor submit davranışını gerçek cihaz/performance profiling ile ölç.
+6. Navigation traffic integration/smoke coverage artır.
+7. Generation/stale testlerini genişlet.
+8. Coalescing gate'in lifecycle/race davranışını testlerle genişlet.
 
 ### P2
 
@@ -208,7 +215,8 @@ Bir satır, bir karakter, import, test, config, workflow, doküman, commit, baş
 - Cihaz testini yapılmış gibi göstermek.
 - GPS başına provider HTTP.
 - Stale sonucu yeni generation'a uygulamak.
+- Büyük dosyada içerik doğrulanmadan full-content overwrite.
 
 ## 16. Güncel sonraki hedef
 
-**Hafıza sistemi artık kurulmuş durumdadır. Bir sonraki `Devam` işleminde önce üç dosya okunacak, sonra GitHub HEAD yeniden doğrulanacak. Teknik olarak ilk odak navigation traffic refresh sırasında executor task-submit davranışını ölçmek ve gerçek gereksinim varsa atomik due/in-flight gate eklemektir. Ardından traffic integration/smoke coverage artırılacaktır.**
+**Hafıza sistemi kurulmuş ve navigation traffic refresh submit zincirine caller-side atomik coalescing gate eklenmiştir. Bir sonraki `Devam` işleminde önce üç hafıza dosyası ve gerçek GitHub HEAD okunacak. Ardından Run 343 sonucu doğrulanacak; başarılıysa APK artifact kontrol edilecek. Sonraki teknik odak gerçek device/performance profiling ve traffic integration/smoke coverage olacaktır.**
