@@ -37,11 +37,8 @@ class HaritalarApplication : Application() {
         SafetyReportUiBridge.install(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
-                if (activity is MainActivity) {
-                    activity.window.decorView.post { configureMapBrowse(activity) }
-                }
+                if (activity is MainActivity) activity.window.decorView.post { configureMapBrowse(activity) }
             }
-
             override fun onActivityCreated(a: Activity, b: Bundle?) = Unit
             override fun onActivityStarted(a: Activity) = Unit
             override fun onActivityPaused(a: Activity) = Unit
@@ -90,9 +87,8 @@ class HaritalarApplication : Application() {
                 val currentTarget = current.target
                 val moved = if (initialTarget != null && currentTarget != null) distanceMeters(currentTarget, initialTarget) > 50.0 else currentTarget == null
                 if (moved || kotlin.math.abs(current.zoom - initialZoom) > 0.25) return
-                val location = findLastDeviceLocation(activity) ?: map.locationComponent.getLastKnownLocation()
+                val location = findLastDeviceLocation(activity)
                 if (location != null) {
-                    map.locationComponent.setCameraMode(org.maplibre.android.location.modes.CameraMode.NONE_GPS)
                     map.cameraPosition = CameraPosition.Builder(current).target(LatLng(location.latitude, location.longitude)).zoom(maxOf(current.zoom, 14.5)).build()
                     return
                 }
@@ -151,7 +147,7 @@ class HaritalarApplication : Application() {
         val button = Button(activity).apply {
             tag = "haritalar-recenter"; text = "⌖ Konumuma dön"; setAllCaps(false); textSize = 12f; minHeight = (50 * density).toInt(); setTextColor(0xFFFFFFFF.toInt())
             background = GradientDrawable().apply { setColor(0xFF1976D2.toInt()); cornerRadius = 18f * density }; elevation = 7f * density
-            setOnClickListener { val location = findLastDeviceLocation(activity) ?: map.locationComponent.getLastKnownLocation(); if (location != null) map.cameraPosition = CameraPosition.Builder(map.cameraPosition).target(LatLng(location.latitude, location.longitude)).zoom(maxOf(map.cameraPosition.zoom, 15.5)).tilt(0.0).build() }
+            setOnClickListener { val location = findLastDeviceLocation(activity); if (location != null) map.cameraPosition = CameraPosition.Builder(map.cameraPosition).target(LatLng(location.latitude, location.longitude)).zoom(maxOf(map.cameraPosition.zoom, 15.5)).tilt(0.0).build() }
         }
         container.addView(button, FrameLayout.LayoutParams(-2, (50 * density).toInt()).apply { gravity = Gravity.TOP or Gravity.END; topMargin = (112 * density).toInt(); rightMargin = (12 * density).toInt() })
     }
