@@ -19,14 +19,34 @@ import kotlin.coroutines.startCoroutine
 class TrafficRouteRankingService(
     private val providerChain: TrafficProviderChain,
 ) {
+    data class DetailedResult(
+        val ranked: List<TrafficRouteRanking.RankedCandidate>,
+        val matchedSegmentsByRoute: Map<String, List<TrafficRouteSegment>>,
+    )
+
     suspend fun rank(
         routes: List<TrafficRouteRanking.RouteCandidate>,
         nowEpochMs: Long = System.currentTimeMillis(),
     ): List<TrafficRouteRanking.RankedCandidate> {
-        if (routes.isEmpty()) return emptyList()
+        return rankDetailed(routes, nowEpochMs).ranked
+    }
+
+    /**
+     * Same verified snapshot as [rank], additionally exposing only the traffic
+     * segments whose provider geometry was actually matched to each route.
+     * The UI may render these segments; unmatched or unusable data never leaks
+     * into the map.
+     */
+    suspend fun rankDetailed(
+        routes: List<TrafficRouteRanking.RouteCandidate>,
+        nowEpochMs: Long = System.currentTimeMillis(),
+    ): DetailedResult {
+        if (routes.isEmpty()) return DetailedResult(emptyList(), emptyMap())
 
         val allCoordinates = routes.flatMap { it.coordinates }.filter(::validCoordinate)
-        if (allCoordinates.isEmpty()) return routes.map(::withoutTraffic)
+        if (allCoordinates.isEmpty()) {
+            return DetailedResult(routes.map(::withoutTraffic), emptyMap())
+        }
 
         val snapshot = runCatching {
             providerChain.fetch(
@@ -37,43 +57,43 @@ class TrafficRouteRankingService(
             )
         }.getOrNull()
 
-        return TrafficRouteRanking.rank(
+        if (snapshot == null || !snapshot.isUsable(nowEpochMs) || snapshot.confidence == TrafficConfidence.LOW) {
+            return DetailedResult(routes.map(::withoutTraffic), emptyMap())
+        }
+
+        val matchedByRoute = routes.associate { route ->
+            route.routeId to TrafficRouteMatcher.match(
+                route = route.coordinates,
+                segments = snapshot.segments,
+                nowEpochMs = nowEpochMs,
+            )
+        }
+        val ranked = TrafficRouteRanking.rank(
             routes = routes,
             snapshot = snapshot,
             nowEpochMs = nowEpochMs,
         )
+        return DetailedResult(ranked, matchedByRoute)
     }
 
-    /**
-     * Blocking bridge for existing Android UI code that already owns a
-     * background executor. Never call this from the main thread.
-     *
-     * The bridge keeps the suspend implementation as the single source of
-     * truth and adds a bounded wait so a broken provider cannot leave a worker
-     * blocked forever.
-     */
     fun rankBlocking(
         routes: List<TrafficRouteRanking.RouteCandidate>,
         nowEpochMs: Long = System.currentTimeMillis(),
         timeoutMs: Long = DEFAULT_BLOCKING_TIMEOUT_MS,
     ): List<TrafficRouteRanking.RankedCandidate> {
         require(timeoutMs > 0L) { "timeoutMs must be positive" }
-
         val completed = CountDownLatch(1)
         val result = AtomicReference<Result<List<TrafficRouteRanking.RankedCandidate>>?>()
         val rankingBlock: suspend () -> List<TrafficRouteRanking.RankedCandidate> = {
             rank(routes, nowEpochMs)
         }
-
         rankingBlock.startCoroutine(object : Continuation<List<TrafficRouteRanking.RankedCandidate>> {
             override val context = EmptyCoroutineContext
-
             override fun resumeWith(value: Result<List<TrafficRouteRanking.RankedCandidate>>) {
                 result.set(value)
                 completed.countDown()
             }
         })
-
         if (!completed.await(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw IllegalStateException("Traffic ranking timed out after ${timeoutMs}ms")
         }
