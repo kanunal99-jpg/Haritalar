@@ -12,8 +12,11 @@ class OsmPoiQueryTest {
         assertContains(query, "supermarket")
         assertContains(query, "fuel")
         assertContains(query, "parking")
-        assertContains(query, "rest_area")
-        assertContains(query, "place_of_worship")
+        assertContains(query, "marketplace")
+        assertContains(query, "townhall")
+        assertContains(query, "office~\"^(government|administrative)$\"")
+        assertContains(query, "highway=\"rest_area\"")
+        assertContains(query, "amenity=\"place_of_worship\"")
         assertContains(query, "public_transport")
     }
 
