@@ -22,6 +22,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
+import java.util.WeakHashMap
 
 /**
  * Installs map-browse affordances without coupling them to the large MainActivity.
@@ -30,6 +31,7 @@ import org.maplibre.android.maps.MapView
  */
 class HaritalarApplication : Application() {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val activityCallbacks = WeakHashMap<Activity, MutableSet<Runnable>>()
 
     override fun onCreate() {
         super.onCreate()
@@ -37,15 +39,33 @@ class HaritalarApplication : Application() {
         SafetyReportUiBridge.install(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
-                if (activity is MainActivity) activity.window.decorView.post { configureMapBrowse(activity) }
+                postActivityTask(activity, Runnable { configureMapBrowse(activity) })
             }
             override fun onActivityCreated(a: Activity, b: Bundle?) = Unit
             override fun onActivityStarted(a: Activity) = Unit
             override fun onActivityPaused(a: Activity) = Unit
             override fun onActivityStopped(a: Activity) = Unit
             override fun onActivitySaveInstanceState(a: Activity, b: Bundle) = Unit
-            override fun onActivityDestroyed(a: Activity) = Unit
+            override fun onActivityDestroyed(activity: Activity) {
+                cancelActivityTasks(activity)
+            }
         })
+    }
+
+    private fun postActivityTask(activity: Activity, task: Runnable, delayMillis: Long = 0L) {
+        val trackedTask = Runnable {
+            synchronized(activityCallbacks) { activityCallbacks[activity]?.remove(this) }
+            task.run()
+        }
+        synchronized(activityCallbacks) {
+            activityCallbacks.getOrPut(activity) { linkedSetOf() }.add(trackedTask)
+        }
+        if (delayMillis == 0L) mainHandler.post(trackedTask) else mainHandler.postDelayed(trackedTask, delayMillis)
+    }
+
+    private fun cancelActivityTasks(activity: Activity) {
+        val tasks = synchronized(activityCallbacks) { activityCallbacks.remove(activity)?.toList().orEmpty() }
+        tasks.forEach(mainHandler::removeCallbacks)
     }
 
     private fun configureMapBrowse(activity: Activity) {
@@ -92,10 +112,10 @@ class HaritalarApplication : Application() {
                     map.cameraPosition = CameraPosition.Builder(current).target(LatLng(location.latitude, location.longitude)).zoom(maxOf(current.zoom, 14.5)).build()
                     return
                 }
-                if (System.currentTimeMillis() - startedAt < 12_000L) mainHandler.postDelayed(this, 500L)
+                if (System.currentTimeMillis() - startedAt < 12_000L) postActivityTask(activity, this, 500L)
             }
         }
-        mainHandler.post(poll)
+        postActivityTask(activity, poll)
     }
 
     private fun findLastDeviceLocation(activity: Activity): Location? {
