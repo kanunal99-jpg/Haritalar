@@ -5,6 +5,7 @@ import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import java.util.concurrent.CountDownLatch
@@ -86,6 +87,24 @@ class TrafficRefreshCoordinatorTest {
         worker.join(2_000L)
 
         assertIs<TrafficRefreshCoordinator.Result.Stale>(resultRef.get())
+    }
+
+    @Test
+    fun `ranking failure clears in-flight state so next refresh can succeed`() {
+        val coordinator = TrafficRefreshCoordinator(minimumIntervalMs = 60_000L)
+        val calls = AtomicInteger(0)
+        val ranker: suspend (List<TrafficRouteRanking.RouteCandidate>, Long) -> List<TrafficRouteRanking.RankedCandidate> = { _, _ ->
+            if (calls.incrementAndGet() == 1) throw IllegalStateException("provider failure")
+            ranked
+        }
+
+        assertFailsWith<IllegalStateException> {
+            await { coordinator.refresh(listOf(route), 1_000L, ranker) }
+        }
+        val result = await { coordinator.refresh(listOf(route), 2_000L, ranker) }
+
+        assertIs<TrafficRefreshCoordinator.Result.Refreshed>(result)
+        assertEquals(2, calls.get())
     }
 
     private fun <T> await(block: suspend () -> T): T {
