@@ -66,6 +66,26 @@ Her işlem kaydında mümkün olduğunca şu alanlar bulunacaktır:
 
 **HER İŞLEM TAMAMLANMADAN SONRAKİ İŞE GEÇİLMEYECEKTİR.** İşlem yarım kaldıysa log'a mevcut durum ve kalan adım yazılacak; yeni oturumda önce bu yarım iş tamamlanacaktır.
 
+
+
+### 🚨 YENİ ÖZELLİKLERDE CANLI KULLANICI DOĞRULAMASI ZORUNLUDUR 🚨
+
+**HER YENİ EKLENEN ÖZELLİK, KOD/UNIT TEST/CI BAŞARISINDAN AYRI OLARAK CANLIDA UYGULAMA ÜZERİNDE KONTROL EDİLECEKTİR. ÖZELLİĞİN ÇALIŞTIĞI VARSAYILMAYACAK; PROJE SAHİBİNE (ÜNAL KAN) AÇIKÇA BİLGİ VERİLECEK VE CANLI KONTROL İÇİN APK/BUILD VE GEREKLİ KONTROL ADIMLARI SUNULACAKTIR.**
+
+**PROJE SAHİBİ “KONTROL BAŞARILI” DEMEDEN YENİ GELİŞTİRMEYE, BAŞKA ÖZELLİĞE VEYA SONRAKİ İŞLEM ADIMINA GEÇİLMEYECEKTİR.**
+
+**BU KURALIN ÇIKIŞ NEDENİ:** Trafik yoğunluğu haritasının aktif olduğu daha önce söylenmiş olmasına rağmen uygulamada rota içindeyken de rota seçili değilken de gerçek yeşil/sarı/turuncu/kırmızı trafik katmanının görünmediği ortaya çıkmıştır. Bundan sonra “kodda var”, “CI başarılı”, “APK üretildi” veya “teknik olarak hazır” ifadeleri canlı kullanıcı davranışının doğrulandığı anlamına gelmeyecektir. Özellik canlıda görünür/çalışır ve proje sahibi tarafından başarılı olarak doğrulanırsa ancak o zaman **KULLANICI DOĞRULAMASI / BAŞARILI** kabul edilecektir.
+
+**CANLI KONTROL KAYDI:** Her yeni özellik için hangi APK/build'in kontrol edildiği, kontrol edilen özellik, beklenen davranış, gerçek gözlem ve proje sahibinin sonucu (`KONTROL BAŞARILI` / `BAŞARISIZ` / `BEKLİYOR`) repo işlem kayıtlarında tutulacaktır. Başarısız kullanıcı kontrolü başarısız olarak kalacak ve düzeltilmeden sonraki özelliğe geçilmeyecektir.
+
+### 🚨 HER APK ÇIKIŞINDA ZORUNLU SÜRÜM/ÖZELLİK RAPORU 🚨
+
+**HER YENİ APK ÇIKIŞINDA RAPORDA MUTLAKA APK'NIN TOPLAM DOSYA BOYUTU (BYTE VE MB), ARTIFACT ADI/ID'Sİ VE DOĞRULANMIŞ SHA-256 DEĞERİ YAZILACAKTIR.**
+
+**AYNI APK RAPORUNDA, O APK'YA GERÇEKTEN GİREN TÜM GERÇEKLEŞMİŞ ÖZELLİKLER MADDE MADDE YAZILACAKTIR. YENİ EKLENEN ÖZELLİKLER AYRICA AÇIKÇA İŞARETLENECEK; SADECE PLANDA OLAN, SADECE TEST EDİLEN VEYA SADECE KODDA HAZIRLANAN AMA CANLIDA DOĞRULANMAYAN ÖZELLİKLER “GERÇEKLEŞTİ” LİSTESİNE KONULMAYACAKTIR.**
+
+**APK RAPORU; COMMIT → CI → BUILD → ARTIFACT → BOYUT → SHA-256 → GERÇEKLEŞEN ÖZELLİKLER → CANLI KONTROL DURUMU zincirini birbirinden ayırarak gösterecektir.**
+
 ## 1. Gerçeklik standardı
 
 - Yapılmayan iş yapılmış gibi anlatılmaz.
