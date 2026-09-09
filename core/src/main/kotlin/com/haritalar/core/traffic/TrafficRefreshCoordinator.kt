@@ -86,7 +86,7 @@ class TrafficRefreshCoordinator(
         require(timeoutMs > 0L) { "timeoutMs must be positive" }
 
         val completed = CountDownLatch(1)
-        val result = AtomicReference<Result<TrafficRefreshCoordinator.Result>?>()
+        val result = AtomicReference<kotlin.Result<TrafficRefreshCoordinator.Result>?>()
         val refreshBlock: suspend () -> TrafficRefreshCoordinator.Result = {
             refresh(routes, nowEpochMs, ranker)
         }
@@ -94,7 +94,7 @@ class TrafficRefreshCoordinator(
         refreshBlock.startCoroutine(object : Continuation<TrafficRefreshCoordinator.Result> {
             override val context = EmptyCoroutineContext
 
-            override fun resumeWith(value: Result<TrafficRefreshCoordinator.Result>) {
+            override fun resumeWith(value: kotlin.Result<TrafficRefreshCoordinator.Result>) {
                 result.set(value)
                 completed.countDown()
             }
