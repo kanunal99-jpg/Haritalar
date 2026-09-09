@@ -62,6 +62,26 @@ class OsmPoiParserTest {
     }
 
     @Test
+    fun parses_marketplace_and_public_institution_tags_without_inventing_hours() {
+        val payload = """
+            {"elements":[
+              {"type":"node","id":10,"lat":41.05,"lon":29.06,"tags":{"name":"Salı Pazarı","amenity":"marketplace","opening_hours":"Tu 08:00-18:00"}},
+              {"type":"node","id":11,"lat":41.06,"lon":29.07,"tags":{"name":"İlçe Belediyesi","amenity":"townhall","addr:street":"Atatürk Caddesi"}},
+              {"type":"node","id":12,"lat":41.07,"lon":29.08,"tags":{"name":"Akaryakıt İstasyonu","amenity":"fuel","brand":"Shell"}}
+            ]}
+        """.trimIndent()
+
+        val result = OsmPoiParser.parse(payload)
+
+        assertEquals(NavigationPoiCategory.MARKET, result[0].category)
+        assertEquals("Tu 08:00-18:00", result[0].openingHours)
+        assertEquals(NavigationPoiCategory.PUBLIC_INSTITUTION, result[1].category)
+        assertEquals("Atatürk Caddesi", result[1].address)
+        assertEquals(NavigationPoiCategory.FUEL, result[2].category)
+        assertNull(result[1].openingHours)
+    }
+
+    @Test
     fun skips_entries_without_name_or_coordinates() {
         val payload = """
             {
