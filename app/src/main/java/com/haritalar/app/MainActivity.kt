@@ -26,7 +26,10 @@ import com.haritalar.core.navigation.NavigationPoiDetails
 import com.haritalar.core.navigation.NavigationProgressEngine
 import com.haritalar.core.navigation.ValhallaRoutePolicy
 import com.haritalar.core.navigation.TollBridge
+import com.haritalar.core.traffic.TrafficRefreshCoordinator
 import com.haritalar.core.traffic.TrafficRouteRanking
+import com.haritalar.core.traffic.TrafficRouteRankingService
+import com.haritalar.navigation.TrafficRefreshNavigationBridge
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
@@ -88,6 +91,24 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var lastRerouteAt = 0L
     private val navigationEngine = NavigationProgressEngine()
     private val trafficRankingService = TrafficEngineFactory.createRankingService()
+    private val trafficRefreshCoordinator = TrafficRefreshCoordinator()
+    private val trafficRefreshBridge = TrafficRefreshNavigationBridge(
+        coordinator = trafficRefreshCoordinator,
+        rankingService = trafficRankingService,
+        backgroundExecutor = routeExecutor,
+        onRefreshed = { ranked ->
+            runOnUiThread { applyTrafficRankedSnapshot(ranked) }
+        },
+        onStale = { ranked ->
+            android.util.Log.d("MainActivity", "Trafik sonucu eski route generation nedeniyle atıldı: ${ranked.size} rota")
+        },
+        onFailure = { error ->
+            android.util.Log.w("MainActivity", "Navigasyon trafik yenilemesi başarısız; mevcut rota korunuyor", error)
+        },
+    )
+    private var trafficRouteOptions: List<RouteOption> = emptyList()
+    private var activeRouteId: String? = null
+    private var lastTrafficRanked: List<TrafficRouteRanking.RankedCandidate> = emptyList()
     private var ttsReady = false
     private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
     private var routeGeneration = 0
@@ -119,7 +140,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             } else {
                 status.text = "GPS aktif • %.5f, %.5f".format(location.latitude, location.longitude)
             }
-            if (navigationActive) followLocation(location)
+            if (navigationActive) {
+                followLocation(location)
+                requestNavigationTrafficRefresh()
+            }
         }
     }
 
@@ -458,14 +482,24 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (rerouteInFlight || now - lastRerouteAt < REROUTE_COOLDOWN_MS) return
         rerouteInFlight = true
         lastRerouteAt = now
+        val generation = ++routeGeneration
+        trafficRefreshBridge.onRouteChanged()
+        trafficRouteOptions = emptyList()
+        lastTrafficRanked = emptyList()
         requestSingleRoute(location.latitude, location.longitude, target.latitude, target.longitude, "Yeniden rota", "auto") { option ->
+            if (generation != routeGeneration) return@requestSingleRoute
             rerouteInFlight = false
+            trafficRouteOptions = listOf(option)
             applyRoute(option, true)
         }
     }
 
     private fun requestRouteOptions(origin: Location, target: LatLng) {
         val generation = ++routeGeneration
+        trafficRefreshBridge.onRouteChanged()
+        trafficRouteOptions = emptyList()
+        activeRouteId = null
+        lastTrafficRanked = emptyList()
         val specs = listOf(
             Triple("En hızlı", "Hızlı rota • ücretli/feribot geçişleri kullanılabilir", "auto"),
             Triple("En kısa", "Mesafeyi azaltır", "auto_shorter"),
@@ -496,7 +530,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 }.getOrElse { emptyMap() }
 
                 runOnUiThread {
-                    if (generation == routeGeneration) renderRouteOptions(snapshot, trafficByRoute)
+                    if (generation == routeGeneration) {
+                        trafficRouteOptions = snapshot
+                        renderRouteOptions(snapshot, trafficByRoute)
+                    }
                 }
             }
         }
@@ -565,6 +602,36 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         return "$start|$end|${option.points.size}|${"%.1f".format(option.totalMeters)}|${option.ferryUsed}"
     }
 
+    private fun requestNavigationTrafficRefresh() {
+        if (!navigationActive) return
+        val routeSet = trafficRouteOptions
+        if (routeSet.isEmpty()) return
+        val candidates = routeSet.map { option ->
+            TrafficRouteRanking.RouteCandidate(
+                routeId = routeSignature(option),
+                coordinates = option.points.map { GeoCoordinate(it.latitude, it.longitude) },
+                baseDurationSeconds = option.durationSeconds.coerceAtLeast(0.0).roundToLong(),
+            )
+        }
+        trafficRefreshBridge.onLocationUpdate(candidates)
+    }
+
+    private fun applyTrafficRankedSnapshot(ranked: List<TrafficRouteRanking.RankedCandidate>) {
+        lastTrafficRanked = ranked
+        if (!navigationActive) return
+        val active = activeRouteId?.let { id -> ranked.firstOrNull { it.routeId == id } } ?: return
+        if (active.trafficApplied) {
+            val delayMinutes = ((active.adjustedDurationSeconds - active.baseDurationSeconds).coerceAtLeast(0L)) / 60.0
+            status.text = if (delayMinutes >= 1.0) {
+                "Navigasyon • canlı trafik güncellendi • +%.0f dk".format(delayMinutes)
+            } else {
+                "Navigasyon • canlı trafik güncellendi"
+            }
+        } else {
+            status.text = "Navigasyon • trafik verisi doğrulanamadı • temel ETA korunuyor"
+        }
+    }
+
     private fun renderRouteOptions(
         options: List<RouteOption>,
         trafficByRoute: Map<String, RouteTrafficUiModel> = emptyMap(),
@@ -614,6 +681,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         routeCumulativeMeters = option.cumulativeMeters
         routeTotalMeters = option.totalMeters
         currentManeuvers = option.maneuvers
+        activeRouteId = routeSignature(option)
+        if (trafficRouteOptions.isEmpty() || trafficRouteOptions.none { routeSignature(it) == activeRouteId }) {
+            trafficRouteOptions = listOf(option)
+        }
         navigationEngine.reset()
         drawRoute(option.points)
         if (isReroute) {
@@ -660,6 +731,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         followLocation(lastLocation!!)
         speak(START_TTS, true)
         status.text = "Navigasyon başladı • rota takip ediliyor"
+        requestNavigationTrafficRefresh()
     }
 
     private fun applyNavigationCamera() {
