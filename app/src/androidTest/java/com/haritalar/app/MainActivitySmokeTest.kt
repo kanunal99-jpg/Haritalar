@@ -3,7 +3,6 @@ package com.haritalar.app
 import android.Manifest
 import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ActivityScenario
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
@@ -14,6 +13,7 @@ import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.runners.AndroidJUnit4
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
@@ -32,15 +32,46 @@ class MainActivitySmokeTest {
         }
 
         try {
-            onView(withHint("Nereye gitmek istiyorsun?"))
-                .check(matches(isDisplayed()))
-            onView(withText("Ara"))
-                .check(matches(isDisplayed()))
+            assertInitialControls()
         } catch (error: Throwable) {
             throw AssertionError("MainActivity launched but initial controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
             scenario.close()
         }
+    }
+
+    @Test
+    fun mainActivityCanBeOpenedTwiceAfterDestroy() {
+        val first = try {
+            ActivityScenario.launch(MainActivity::class.java)
+        } catch (error: Throwable) {
+            throw AssertionError("First MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
+        }
+        try {
+            assertInitialControls()
+        } finally {
+            first.close()
+        }
+
+        val second = try {
+            ActivityScenario.launch(MainActivity::class.java)
+        } catch (error: Throwable) {
+            throw AssertionError("Second MainActivity launch failed after destroying the first activity. Live diagnostics:\n${liveDiagnostics()}", error)
+        }
+        try {
+            assertInitialControls()
+        } catch (error: Throwable) {
+            throw AssertionError("Second MainActivity launch succeeded but controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
+        } finally {
+            second.close()
+        }
+    }
+
+    private fun assertInitialControls() {
+        onView(withHint("Nereye gitmek istiyorsun?"))
+            .check(matches(isDisplayed()))
+        onView(withText("Ara"))
+            .check(matches(isDisplayed()))
     }
 
     private fun liveDiagnostics(): String {
