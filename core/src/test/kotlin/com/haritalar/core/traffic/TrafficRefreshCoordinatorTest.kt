@@ -8,6 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -80,12 +81,83 @@ class TrafficRefreshCoordinatorTest {
             resultRef.set(await { coordinator.refresh(listOf(route), 1_000L, ranker) })
         }
         worker.start()
-        assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        assertTrue(started.await(2, TimeUnit.SECONDS))
         coordinator.reset()
         release.countDown()
         worker.join(2_000L)
 
         assertIs<TrafficRefreshCoordinator.Result.Stale>(resultRef.get())
+    }
+
+    @Test
+    fun `stale refresh does not poison next generation result or cooldown`() {
+        val coordinator = TrafficRefreshCoordinator(minimumIntervalMs = 60_000L)
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val calls = AtomicInteger(0)
+        val staleResult = AtomicReference<TrafficRefreshCoordinator.Result>()
+
+        val ranker: suspend (List<TrafficRouteRanking.RouteCandidate>, Long) -> List<TrafficRouteRanking.RankedCandidate> = { _, _ ->
+            if (calls.incrementAndGet() == 1) {
+                started.countDown()
+                release.await()
+            }
+            ranked
+        }
+
+        val worker = Thread {
+            staleResult.set(await { coordinator.refresh(listOf(route), 1_000L, ranker) })
+        }
+        worker.start()
+        assertTrue(started.await(2, TimeUnit.SECONDS))
+
+        coordinator.reset()
+        release.countDown()
+        worker.join(2_000L)
+
+        assertIs<TrafficRefreshCoordinator.Result.Stale>(staleResult.get())
+
+        val nextGeneration = await { coordinator.refresh(listOf(route), 2_000L, ranker) }
+        assertIs<TrafficRefreshCoordinator.Result.Refreshed>(nextGeneration)
+        assertEquals(ranked, nextGeneration.ranked)
+        assertEquals(2, calls.get())
+
+        val withinNewCooldown = await { coordinator.refresh(listOf(route), 2_001L, ranker) }
+        assertIs<TrafficRefreshCoordinator.Result.Skipped>(withinNewCooldown)
+        assertEquals(ranked, withinNewCooldown.ranked)
+        assertEquals(2, calls.get())
+    }
+
+    @Test
+    fun `in flight refresh suppresses a concurrent duplicate`() {
+        val coordinator = TrafficRefreshCoordinator(minimumIntervalMs = 0L)
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val firstResult = AtomicReference<TrafficRefreshCoordinator.Result>()
+        val secondResult = AtomicReference<TrafficRefreshCoordinator.Result>()
+        val calls = AtomicInteger(0)
+
+        val ranker: suspend (List<TrafficRouteRanking.RouteCandidate>, Long) -> List<TrafficRouteRanking.RankedCandidate> = { _, _ ->
+            calls.incrementAndGet()
+            started.countDown()
+            release.await()
+            ranked
+        }
+
+        val worker = Thread {
+            firstResult.set(await { coordinator.refresh(listOf(route), 1_000L, ranker) })
+        }
+        worker.start()
+        assertTrue(started.await(2, TimeUnit.SECONDS))
+
+        secondResult.set(await { coordinator.refresh(listOf(route), 1_001L, ranker) })
+        assertIs<TrafficRefreshCoordinator.Result.Skipped>(secondResult.get())
+        assertEquals(emptyList(), secondResult.get().ranked)
+        assertEquals(1, calls.get())
+
+        release.countDown()
+        worker.join(2_000L)
+        assertIs<TrafficRefreshCoordinator.Result.Refreshed>(firstResult.get())
     }
 
     @Test
@@ -118,7 +190,7 @@ class TrafficRefreshCoordinatorTest {
                 completed.countDown()
             }
         })
-        assertTrue(completed.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        assertTrue(completed.await(2, TimeUnit.SECONDS))
         return result.get().getOrThrow()
     }
 }
