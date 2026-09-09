@@ -32,7 +32,7 @@ Kritik zincir:
 
 `TrafficRouteRankingService` route seti için en fazla bir provider-chain snapshot alır ve geometry-aware ranking uygular. Empty/invalid route, provider/network failure, expired/mismatch/LOW-confidence traffic durumlarında base ETA korunur. `rankBlocking()` suspend `rank()` fonksiyonunu bounded 120 saniyelik blocking bridge üzerinden mevcut Executor akışına bağlar ve ana thread'de kullanılmamalıdır.
 
-Yeni `TrafficRefreshCoordinator`, navigation/route-card çağıran katmanların refresh zamanlamasını ve tekil in-flight ranking isteğini koordine eder. Varsayılan minimum yenileme aralığı 60 saniyedir. `reset()` yeni route generation için cooldown'u temizler ve çalışan eski ranking sonucunu `Stale` olarak işaretler; böylece eski generation sonucu yeni rotaya uygulanmaz. Coordinator provider/fallback mantığını kopyalamaz; verilen canonical ranking fonksiyonunu kullanır.
+`TrafficRefreshCoordinator`, navigation/route-card çağıran katmanların refresh zamanlamasını ve tekil in-flight ranking isteğini koordine eder. Varsayılan minimum yenileme aralığı 60 saniyedir. `reset()` yeni route generation için cooldown'u temizler ve çalışan eski ranking sonucunu `Stale` olarak işaretler; böylece eski generation sonucu yeni rotaya uygulanmaz. Coordinator provider/fallback mantığını kopyalamaz; verilen canonical ranking fonksiyonunu kullanır.
 
 ## TomTom / credential / refresh
 
@@ -54,17 +54,23 @@ Trafik uygulanmadığında kart temel Valhalla ETA'sını gösterir. Doğrulanm�
 
 - `2c34feb8d8ef56850fd718920165b315cd1fc2c1` — `TrafficRefreshCoordinator` eklendi. 60 saniyelik minimum refresh aralığı, tek in-flight ranking, reset/generation invalidation ve stale sonuç ayrımı sağlandı.
 - `24f63830811337ecebc024ed779aeeeceb124609` — coordinator için cooldown, reset ve çalışan refresh'in stale olması unit testleri eklendi.
+- GitHub Actions Run `308` (`34326254943`) coordinator implementation HEAD için **success**; unit tests + debug APK build + artifact/release adımları success.
+- Run `308` debug APK artifact: `haritalar-debug-apk-308`, artifact digest `sha256:764c45cbfe4470199192657e183644f52e512b7e85a95e4055e0c39d0660d819`.
+- `24f638...` test HEAD için GitHub Actions Run `309` (`34326268329`) **success**; unit tests + debug APK build + artifact/release adımları success.
+- Run `309` debug APK artifact: `haritalar-debug-apk-309`, artifact digest `sha256:839811646c32f606237cecfc6c8136861dc2217c81b31c999650d5514b810a0d`.
 - `7a42a03f1f0f61c0b8f9e3bd2925f6632fbc8672` — önceki TomTom sample cache/test durumu dokümana işlendi.
 
 ## CI / APK — doğrulanmış
 
-- Run `307` (`34275365434`) **success** ve HEAD `7a42a03f1f0f61c0b8f9e3bd2925f6632fbc8672` için unit tests + debug APK build başarılıdır. Build job'da unit tests, debug APK ve artifact/release adımları success durumundadır.
-- Run `307` sonrası eklenen coordinator commitleri için yeni CI sonucu henüz doğrulanmadı. Bu nedenle yeni HEAD için APK hazır denmez.
+- Run `309` HEAD `24f63830811337ecebc024ed779aeeeceb124609` için **success** ve debug APK üretildi.
+- Run `309` artifact: `haritalar-debug-apk-309`; artifact digest: `sha256:839811646c32f606237cecfc6c8136861dc2217c81b31c999650d5514b810a0d`.
+- Run `308` HEAD `2c34feb8d8ef56850fd718920165b315cd1fc2c1` için **success** ve debug APK üretildi.
+- Run `308` artifact: `haritalar-debug-apk-308`; artifact digest: `sha256:764c45cbfe4470199192657e183644f52e512b7e85a95e4055e0c39d0660d819`.
 - Önceki doğrulanmış Run `303` (`34274419418`) APK artifact: `haritalar-debug-apk-303`; `app-debug.apk` SHA-256: `cb599f1c47e871e3daec0c7705b98bf57da3b26909c9a697f1a794110fe3fe59`.
 
 ## Güncel HEAD
 
-Son doğrulanan GitHub `main` HEAD: `24f63830811337ecebc024ed779aeeeceb124609` (`test(traffic): cover navigation refresh coordination`). Bu doküman güncellemesi üzerine yeni bir commit oluşturacaktır; doküman commit SHA'sı GitHub'dan tekrar doğrulanmalıdır.
+Son doğrulanan GitHub `main` HEAD: `24f63830811337ecebc024ed779aeeeceb124609` (`test(traffic): cover navigation refresh coordination`). Bu doküman güncellemesi üzerine yeni bir commit oluşturmuştur; doküman commit SHA'sı GitHub'dan tekrar doğrulanmalıdır.
 
 ## Başarılı / mevcut
 
@@ -89,14 +95,13 @@ Son doğrulanan GitHub `main` HEAD: `24f63830811337ecebc024ed779aeeeceb124609` (
 - TomTom sample request bound (8)
 - TomTom short-lived sample cache (30 s)
 - TrafficRefreshCoordinator timing/concurrency/stale-generation primitive
-- Run 303 için başarılı unit tests + debug APK
-- Run 307 için başarılı unit tests + debug APK
+- Run 303, 308 ve 309 için başarılı unit tests + debug APK
 
 ## Açık işler / sonraki hedef
 
-1. `24f638...`/doküman HEAD sonrası yeni CI'ı doğrula; başarısızsa gerçek hatayı düzelt.
+1. Doküman HEAD commitini GitHub'dan doğrula.
 2. Gerçek TomTom credential olmadan canlı trafik iddiası yapma; credential sağlandığında gerçek smoke/integration test yap.
-3. `TrafficRefreshCoordinator`ı MainActivity navigation akışına bağla: GPS callback yalnız cooldown kontrolü yapsın; HTTP/provider çağrısı yalnız background executor'da ve refresh gerektiğinde çalışsın.
+3. `TrafficRefreshCoordinator`ı MainActivity navigation akışına bağla: GPS callback yalnız cooldown/in-flight kontrolü yapsın; HTTP/provider çağrısı yalnız background executor'da ve refresh gerektiğinde çalışsın.
 4. Navigation sırasında tüm mevcut route seti üzerinden tek traffic ranking snapshot al; seçili route ve UI stale-generation guard ile korunmalı.
 5. Off-route/reroute sonrasında coordinator `reset()` ile eski traffic sonucunu geçersiz kılmalı ve yeni route generation için kontrollü refresh yapılmalı.
 6. Gerçek traffic-adjusted ranking için integration/smoke coverage artır.
@@ -120,4 +125,4 @@ Son doğrulanan GitHub `main` HEAD: `24f63830811337ecebc024ed779aeeeceb124609` (
 
 ## Sonraki Devam hedefi
 
-**Yeni coordinator HEAD için CI sonucunu doğrula. Yeşil ise `MainActivity` navigation callback'ine coordinator bağla: GPS olayları yalnız cooldown/in-flight kontrolü yapacak, ranking background executor'da çalışacak, routeGeneration/reset stale sonucu UI'a yazılmasını engelleyecek. Sonra CI ve APK'yı gerçek GitHub sonucu ile doğrula.**
+**Doküman HEAD commitini GitHub'dan doğrula. Ardından `MainActivity` navigation callback'ine coordinator bağla: GPS olayları yalnız cooldown/in-flight kontrolü yapacak, ranking background executor'da çalışacak, routeGeneration/reset stale sonucu UI'a yazılmasını engelleyecek. Sonra CI ve APK'yı gerçek GitHub sonucu ile doğrula.**
