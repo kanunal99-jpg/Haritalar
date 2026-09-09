@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withHint
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Test
@@ -14,7 +15,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
     @Test
-    fun mainActivityLaunchesAndShowsInitialStatus() {
+    fun mainActivityLaunchesAndShowsInitialControls() {
         val scenario = try {
             ActivityScenario.launch(MainActivity::class.java)
         } catch (error: Throwable) {
@@ -22,9 +23,12 @@ class MainActivitySmokeTest {
         }
 
         try {
-            onView(withText("Haritalar • GPS bekleniyor")).check(matches(isDisplayed()))
+            onView(withHint("Nereye gitmek istiyorsun?"))
+                .check(matches(isDisplayed()))
+            onView(withText("Ara"))
+                .check(matches(isDisplayed()))
         } catch (error: Throwable) {
-            throw AssertionError("MainActivity launched but initial status was not verified. Live diagnostics:\n${liveDiagnostics()}", error)
+            throw AssertionError("MainActivity launched but initial controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
             scenario.close()
         }
