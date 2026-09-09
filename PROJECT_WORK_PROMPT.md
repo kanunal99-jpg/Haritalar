@@ -135,12 +135,14 @@ Yeni hedef/routing `reset()` ile eski traffic state'ini temizler. Off-route/rero
 - `fe39634743175c4ca839314c6cda357e85bb69f1` — blocking bridge unit coverage.
 - `b43cb23605b37d446e58535ead260a2d4e39fe7d` — documentation sync.
 - `b37178681b9b52f33358ee95ef757ae2c67c6fa1` — navigation traffic refresh task coalescing gate.
-- `9b1110e355a258c4f3f2e267075695f3a0e26742` — activity log sync.
-- `8c1c9842beea4dc15e456a0c053baaa23361b7df` — project details sync.
+- `161098fa08712ed80c19fb0006beb61331235778` — coordinator generation/in-flight race tests.
+- `a55b1387df2e78d83108a9a37a63223822363843` — race test typing fix.
+- `1af18dd05400797bd748c43a8d133923a656f274` — activity log sync for race-test failure/fix.
+- `d1369ac746d0fdb96858cc9c82580e6d819fcddd` — project details sync with current race coverage/backlog.
 
 ## 11. CI / APK — güncel gerçek durum
 
-Önceden GitHub Actions'tan doğrulanmış güncel yeşil run:
+Önceden GitHub Actions'tan doğrulanmış yeşil kilometre taşı:
 
 - Run: **335**
 - Run ID: `34339025583`
@@ -158,13 +160,12 @@ Yeni hedef/routing `reset()` ile eski traffic state'ini temizler. Off-route/rero
 
 Bu CI sonucu APK artifact üretildiğini doğrular; fiziksel cihaz kurulumu/testi anlamına gelmez.
 
-Yeni traffic coalescing commit'i için Run `343` / ID `34342979779` başlatılmıştır; sonuç kesinleşmeden başarılı kabul edilmez.
+## 12. Son CI olayları
 
-## 12. Önceden doğrulanmış CI/APK
-
-- Run 303 (`34274419418`): success; `haritalar-debug-apk-303`; SHA-256 `cb599f1c47e871e3daec0c7705b98bf57da3b26909c9a697f1a794110fe3fe59`.
-- Run 308: success; `haritalar-debug-apk-308`; digest `sha256:764c45cbfe4470199192657e183644f52e512b7e85a95e4055e0c39d0660d819`.
-- Run 309: success; `haritalar-debug-apk-309`; digest `sha256:839811646c32f606237cecfc6c8136861dc2217c81b31c999650d5514b810a0d`.
+- Run `343` / ID `34342979779`: navigation traffic coalescing commit'i için çalıştı ve sonraki proje kayıtlarında **success** olarak doğrulandı; debug APK artifact'i üretildi.
+- Run `348` / ID `34344278516`: coordinator race test ilk denemesi **failure**. Kotlin test derleme hatası nedeniyle APK adımları çalışmadı.
+- Run `350` / ID `34344440387`: `a55b1387...` race-test typing fix için başlatıldı; sonuç kesinleşmeden success kabul edilmez.
+- Run `351` / ID `34344489681`: `1af18dd...` activity-log commit'i için queued durumda gözlendi; sonuç kesinleşmeden success kabul edilmez.
 
 ## 13. Açık işler — öncelik
 
@@ -177,10 +178,10 @@ Yeni traffic coalescing commit'i için Run `343` / ID `34342979779` başlatılm�
 
 ### P1
 
-5. GPS → coordinator → executor submit davranışını gerçek cihaz/performance profiling ile ölç.
+5. GPS → coordinator → executor submit davranışının gerçek cihaz/performance etkisini ölç.
 6. Navigation traffic integration/smoke coverage artır.
-7. Generation/stale testlerini genişlet.
-8. Coalescing gate'in lifecycle/race davranışını testlerle genişlet.
+7. ~~Generation/stale testlerini genişlet.~~ **Coordinator-level stale/race coverage genişletildi; navigation/UI integration coverage hâlâ açık.**
+8. ~~Coalescing gate'in lifecycle/race davranışını testlerle genişlet.~~ **Coordinator in-flight race testleri eklendi; caller-side gate için lifecycle/submit-rejection ve gerçek cihaz coverage ayrıca değerlendirilecek.**
 
 ### P2
 
@@ -219,4 +220,4 @@ Bir satır, bir karakter, import, test, config, workflow, doküman, commit, baş
 
 ## 16. Güncel sonraki hedef
 
-**Hafıza sistemi kurulmuş ve navigation traffic refresh submit zincirine caller-side atomik coalescing gate eklenmiştir. Bir sonraki `Devam` işleminde önce üç hafıza dosyası ve gerçek GitHub HEAD okunacak. Ardından Run 343 sonucu doğrulanacak; başarılıysa APK artifact kontrol edilecek. Sonraki teknik odak gerçek device/performance profiling ve traffic integration/smoke coverage olacaktır.**
+**Bir sonraki `Devam` işleminde önce üç hafıza dosyası ve gerçek GitHub HEAD okunacak. Ardından Run 350 ve Run 351 sonuçları gerçek GitHub'dan kesinleştirilecek. Run 350 başarılıysa yeni APK artifact'i doğrulanacak; başarısızsa gerçek CI hatası düzeltilip tekrar doğrulanacak. Sonrasında navigation/UI traffic integration-smoke coverage ve gerçek cihaz/performance/battery profiling önceliklendirilecek.**
