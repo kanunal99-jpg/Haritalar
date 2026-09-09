@@ -308,9 +308,13 @@ Asla:
 - Aynı route seti için gereksiz paralel traffic snapshot'ları başlatılmaz.
 - Stale sonuç yeni generation'a uygulanmaz.
 
-İzlenecek konu:
+Navigation traffic refresh submit zincirinde artık ek bir caller-side atomik gate vardır:
 
-`GPS event → coordinator submit` davranışında cooldown/in-flight korumasına rağmen gereksiz executor task birikimi oluşup oluşmadığı ölçülmelidir. Gerekirse coordinator ile thread-submit arasına atomik due/in-flight gate eklenir.
+`GPS event → AtomicBoolean gate → routeExecutor → TrafficRefreshCoordinator`
+
+`trafficRefreshTaskInFlight` aynı anda birden fazla navigation refresh task'ının executor kuyruğuna eklenmesini engeller. Coordinator'ın kendi `inFlight` koruması bunun altında ikinci savunma katmanı olarak kalır. Task tamamlanınca gate `finally` ile serbest bırakılır; executor submit reddedilirse gate geri alınır.
+
+Bu gate'in gerçek cihaz/batarya etkisi henüz ölçülmüş kabul edilmez; sonraki adım instrumentation/profile veya cihaz smoke testi ile gözlemlenebilir.
 
 ---
 
@@ -363,6 +367,15 @@ GitHub compare ile doğrulanan `c66c1d3` → `fe396347` aralığında 4 commit v
 - `core/src/main/kotlin/com/haritalar/core/traffic/TrafficRefreshCoordinator.kt`
 - `core/src/test/kotlin/com/haritalar/core/traffic/TrafficRefreshCoordinatorTest.kt`
 
+### 2026-09-09 — navigation traffic submit coalescing
+
+- `b37178681b9b52f33358ee95ef757ae2c67c6fa1` — `perf: coalesce navigation traffic refresh tasks`
+- `MainActivity.kt` içine caller-side `AtomicBoolean` gate eklendi.
+- Amaç: GPS event'leri sırasında aynı anda bekleyen traffic refresh executor task'larını azaltmak.
+- Coordinator'ın mevcut in-flight/cooldown koruması kaldırılmadı; iki katman birlikte çalışıyor.
+- Kod GitHub'da commit sonrası tekrar doğrulandı.
+- CI Run `343` bu commit için başlatıldı; sonuç gözlem sırasında `in_progress` idi.
+
 ---
 
 ## 16. Önemli hata/öğrenim kayıtları
@@ -386,6 +399,10 @@ Navigation sırasında eski traffic request yeni route'a dönebilir. Çözüm: `
 ### Canlı trafik ile test verisini karıştırmama
 
 Provider key yokken base ETA korunur. Test fixture'ları canlı trafik olarak sunulmaz.
+
+### MainActivity overwrite recovery olayı
+
+2026-09-09 tarihinde çalışma sırasında `MainActivity.kt` yanlışlıkla `__PLACEHOLDER__` ile değiştirildi. Hatalı commit `ae493b6b45444df62d41d5bf3ad5241db8101144` idi. Önceki blob/tree doğrulanarak recovery commit'i `a467415ff40862bc7ad89b79cd1cc0eca25bf45c` ile dosya restore edildi. Olay activity log'a kaydedildi ve sonrasında gerçek coalescing değişikliği ayrı commit olarak yapıldı.
 
 ---
 
@@ -437,31 +454,43 @@ GitHub Actions REST API üzerinden doğrulandı:
 
 **Önemli:** CI'nin APK üretmesi, fiziksel cihazda kurulum veya gerçek cihaz smoke testinin yapıldığı anlamına gelmez. Cihaz testi ayrıca doğrulanmalıdır.
 
+### Run 343 — navigation traffic coalescing
+
+- Run ID: `34342979779`
+- HEAD: `b37178681b9b52f33358ee95ef757ae2c67c6fa1`
+- Workflow: `Android APK`
+- Status: `in_progress` olarak gözlendi.
+- Sonuç: Henüz `success` veya `failure` olarak kabul edilmedi.
+
 ---
 
 ## 18. Güncel durum — 2026-09-09
 
-### GitHub HEAD
+### Son teknik kod commit'i
 
-`main` HEAD:
-
-`b43cb23605b37d446e58535ead260a2d4e39fe7d`
+`b37178681b9b52f33358ee95ef757ae2c67c6fa1`
 
 Commit:
 
-`docs: sync navigation traffic coordinator integration`
+`perf: coalesce navigation traffic refresh tasks`
 
-### Şu an mevcut kabul edilen zincir
+### Son dokümantasyon/log commit'i
 
-`Valhalla routes → 7 alternatives → traffic candidate set → TrafficRefreshCoordinator → canonical ranking → routeGeneration guard → UI`
+`9b1110e355a258c4f3f2e267075695f3a0e26742`
 
-Navigation:
+Bu commit activity log'a recovery ve coalescing işlemlerini kaydetmiştir ve `main` üzerinde son HEAD'i taşır.
 
-`GPS → coordinator → background executor → canonical ranking → generation validation → traffic state`
+### Navigation traffic zinciri
+
+`GPS → AtomicBoolean caller gate → routeExecutor → TrafficRefreshCoordinator → canonical ranking → routeGeneration guard → UI state`
 
 ### Şu an canlı trafik durumu
 
 Gerçek TomTom credential sağlanmadığı için **canlı TomTom trafik aktif** denmez. Key yoksa base Valhalla ETA güvenli varsayılandır.
+
+### Doğrulama durumu
+
+Coalescing kodu GitHub'da doğrulanmıştır. Run `343` halen `in_progress` gözlenmiştir; bu nedenle build/APK başarısı henüz ilan edilmez.
 
 ---
 
@@ -476,8 +505,8 @@ Gerçek TomTom credential sağlanmadığı için **canlı TomTom trafik aktif** 
 
 ### P1 — navigation trafik performansı
 
-5. GPS → coordinator → executor submit akışında gereksiz task kuyruğu oluşup oluşmadığını ölç.
-6. Gerekiyorsa atomik due/in-flight gate ekle.
+5. ~~GPS → coordinator → executor submit akışında gereksiz task kuyruğu oluşup oluşmadığını ölç.~~ **Kod seviyesi tespit yapıldı; caller-side gate eklendi. Gerçek cihaz/performance ölçümü ayrı açık iştir.**
+6. ~~Gerekiyorsa atomik due/in-flight gate ekle.~~ **`AtomicBoolean trafficRefreshTaskInFlight` eklendi.**
 7. Navigation refresh integration/smoke coverage artır.
 8. Route generation stale sonuç testlerini genişlet.
 
@@ -666,13 +695,15 @@ Append-only ayrıntılı operasyon günlüğü. Her işlem kalem kalem kaydedili
 
 **Tarih:** 2026-09-09
 
-**HEAD:** `b43cb23605b37d446e58535ead260a2d4e39fe7d`
+**Kod HEAD:** `b37178681b9b52f33358ee95ef757ae2c67c6fa1`
 
-**CI:** Run `335` — success.
+**Log HEAD:** `9b1110e355a258c4f3f2e267075695f3a0e26742`
 
-**APK:** `haritalar-debug-apk-335` artifact üretildi ve digest doğrulandı.
+**Son CI:** Run `343` — `in_progress` olarak gözlendi.
 
-**Bir sonraki teknik odak:** Navigation sırasında coordinator'ın executor'a task gönderme davranışını ölçmek; gereksiz task kuyruğu varsa atomik due/in-flight gate ile sıkılaştırmak; ardından gerçek traffic integration/smoke coverage'ı artırmak.
+**Son başarılı APK:** `haritalar-debug-apk-335` artifact; önceki başarılı HEAD `b43cb23605b37d446e58535ead260a2d4e39fe7d`.
+
+**Son teknik değişiklik:** Navigation traffic refresh task coalescing gate.
 
 **Canlı TomTom:** Credential olmadığı için aktif kabul edilmiyor.
 
@@ -683,3 +714,15 @@ Append-only ayrıntılı operasyon günlüğü. Her işlem kalem kalem kaydedili
 Bu dosyanın herhangi bir maddesi eski kaldığında eski bilgi sessizce silinip yok edilmez. Güncel durum yeni bölüm/kayıt ile düzeltilir. Gerekirse eski bilginin neden geçersiz olduğu açıklanır.
 
 Bu sayede proje hafızası yalnız "son hal" değil, **neden bu hale geldiğini de bilen bir sistem** olarak kalır.
+
+---
+
+## 29. 2026-09-09 — Coalescing gate sonrası durum
+
+- `MainActivity.kt` navigation traffic refresh submit zincirinde `AtomicBoolean` caller-side gate ile güncellendi.
+- Gate, coordinator'ın mevcut `inFlight` korumasının yerine geçmez; iki savunma katmanı birlikte korunur.
+- Executor reddi ve Activity destroy durumlarında gate temizlenir.
+- Gerçek GitHub commit'i: `b37178681b9b52f33358ee95ef757ae2c67c6fa1`.
+- Bu kod commit'i için Run `343` / ID `34342979779` gözlem sırasında `in_progress` idi.
+- Hatalı overwrite/recovery olayı `docs/PROJECT_ACTIVITY_LOG.md` içine kalıcı olarak kaydedildi.
+- Yeni `Devam` öncesi bu dosya, `PROJECT_WORK_PROMPT.md` ve activity log tekrar okunmalıdır.
