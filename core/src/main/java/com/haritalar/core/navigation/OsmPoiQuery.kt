@@ -24,11 +24,14 @@ object OsmPoiQuery {
         return """
             [out:json][timeout:20];
             (
-              nwr[amenity~"^(restaurant|cafe|pharmacy|hospital|school|parking|fuel|bank|atm|charging_station|fast_food)$"]($box);
-              nwr[shop~"^(supermarket|convenience|mall|department_store)$"]($box);
-              nwr[leisure~"^(park|rest_area)$"]($box);
+              nwr[amenity~"^(restaurant|cafe|pharmacy|hospital|school|parking|fuel|bank|atm|charging_station|fast_food|marketplace|rest_area|townhall|courthouse|police|fire_station|post_office|library|community_centre)$"]($box);
+              nwr[shop~"^(supermarket|convenience|mall|department_store|bakery|butcher|clothes|electronics|hardware|furniture)$"]($box);
+              nwr[highway="rest_area"]($box);
+              nwr[office~"^(government|administrative)$"]($box);
+              nwr[government]($box);
+              nwr[leisure~"^(park)$"]($box);
               nwr[tourism~"^(hotel|attraction|museum|viewpoint)$"]($box);
-              nwr[place_of_worship]($box);
+              nwr[amenity="place_of_worship"]($box);
               nwr[public_transport]($box);
             );
             out center tags;
