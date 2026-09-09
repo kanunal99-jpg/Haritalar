@@ -112,7 +112,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var lastTrafficRanked: List<TrafficRouteRanking.RankedCandidate> = emptyList()
     private var ttsReady = false
     private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
-    private var routeGeneration = 0
+    @Volatile private var routeGeneration = 0
 
     private data class SearchPlace(val name: String, val lat: Double, val lon: Double)
     private data class RouteOption(
