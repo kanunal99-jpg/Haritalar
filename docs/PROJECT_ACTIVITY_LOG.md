@@ -401,7 +401,25 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **Commit:** `a55b1387df2e78d83108a9a37a63223822363843`
 - **Commit mesajı:** `fix(traffic): correct coordinator race test typing`
 - **Yerel test:** Bu ortamda Android/Gradle build çalıştırılmadı.
-- **CI:** Yeni run bu commit için henüz sonuçlanmadı.
-- **APK:** Henüz doğrulanmadı.
-- **Sonuç:** CI'da tespit edilen gerçek derleme hatası hedefli olarak düzeltildi.
-- **Sonraki adım:** `a55b1387df2e78d83108a9a37a63223822363843` için Android APK workflow sonucunu kontrol et; başarısızsa yeni log üzerinden düzelt.
+- **CI:** Run `350` / Run ID `34344440387` tamamlandı ve **success** oldu.
+- **CI ayrıntısı:** Unit tests, debug APK build, artifact upload ve başarılı main build APK publication adımları success oldu.
+- **APK artifact:** `haritalar-debug-apk-350`
+- **APK boyutu:** `21,665,316` bytes
+- **APK digest:** `sha256:b06b290789180762b7211509f3fb1e3a6d37cf4f921481477dd44fa136a3870e`
+- **Unit test reports:** `haritalar-unit-test-reports-350`
+- **Sonuç:** Race/stale test düzeltmesi CI ve APK üretimiyle doğrulandı.
+- **Sonraki adım:** Dokümantasyon backlog'unu güncel CI sonucuyla senkronize et ve navigation/UI integration-smoke coverage ile gerçek cihaz/performance profiling'e ilerle.
+
+## İşlem #0109 — PROJECT_DETAILS ve PROJECT_WORK_PROMPT backlog senkronizasyonu
+
+- **Tarih:** 2026-09-09
+- **Tür:** Dokümantasyon / proje hafızası
+- **Amaç:** Coordinator race/stale testlerinin tamamlanması ve Run `350` başarısının ardından yaşayan proje hafızasındaki açık işler ve güncel doğrulama durumunu güncellemek.
+- **Yapılan:** `PROJECT_DETAILS.md` güncellendi; coordinator-level stale/race coverage tamamlanmış olarak işaretlendi, Run `348` failure ve Run `350` success kaydedildi, güncel backlog navigation/UI integration, gerçek cihaz/performance/battery profiling ve TomTom integration yönüne taşındı. `PROJECT_WORK_PROMPT.md` güncellendi; Run `350`/`351` doğrulaması ve sonraki teknik öncelikler yeni çalışma döngüsüne işlendi.
+- **Değişen dosyalar:** `PROJECT_DETAILS.md`, `PROJECT_WORK_PROMPT.md`
+- **Commitler:** `d1369ac746d0fdb96858cc9c82580e6d819fcddd`, `aff1641d38cae0e1b5974e6b458512e2786e4a8b`
+- **Test:** Dokümantasyon değişiklikleri için uygulama testi çalıştırılmadı.
+- **CI:** Dokümantasyon commitleri için Run `352` ve Run `353` tetiklendi; sonuçları ayrıca doğrulanacak.
+- **APK:** Bu dokümantasyon commitleri için yeni APK sonucu henüz doğrulanmadı.
+- **Sonuç:** Yaşayan proje hafızası test kapsamı ve güncel backlog ile senkronize edildi.
+- **Sonraki adım:** Run `352`/`353` sonuçlarını doğrula; ardından navigation/UI integration-smoke ve gerçek cihaz/performance profiling işine geç.
