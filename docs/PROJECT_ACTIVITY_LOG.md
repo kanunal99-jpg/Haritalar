@@ -445,10 +445,29 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **Amaç:** #0110 CI doğrulama kaydını activity log'a eklemek.
 - **Hata:** `docs/PROJECT_ACTIVITY_LOG.md` güncellemesi sırasında append-only dosyanın tamamı yerine yalnız son kayıtlar yazıldı ve önceki tarihçe geçici olarak dosya içeriğinden çıkarıldı.
 - **Etkilenen dosya:** `docs/PROJECT_ACTIVITY_LOG.md`
-- **Gerçek durum:** Önceki tam log blob'u `9bbe0ba400e548dbbb0944e7ae00643d944a0d8d` olarak GitHub'dan yeniden elde edildi.
+- **Gerçek durum:** Önceki tam log blob'u `9bbe0ba400e548dbb0944e7ae00643d944a0d8d` olarak GitHub'dan yeniden elde edildi.
 - **Recovery:** Tam tarihçe yeniden oluşturulup #0110 ve bu recovery kaydı sona eklendi. Eski kayıtların korunması esas alındı.
 - **Öğrenim:** Append-only log üzerinde update yapılırken önceki tam blob mutlaka korunmalı; yalnızca son satırların gönderilmesi kabul edilemez.
 - **Test:** Dokümantasyon içeriği GitHub write ile doğrulanacak.
 - **CI/APK:** Bu recovery commitinden sonra yeni Android APK workflow sonucu ayrıca doğrulanacak.
 - **Sonuç:** Tarihçe kaybı kalıcı olmadan düzeltme yapıldı ve hata gizlenmeden kaydedildi.
 - **Sonraki adım:** Recovery commitini GitHub'da doğrula, CI/APK sonucunu kontrol et ve bundan sonra instrumentation/smoke test altyapısına geç.
+
+## İşlem #0112 — MainActivity smoke testindeki zaman bağımlı assertion düzeltildi
+
+- **Tarih:** 2026-09-09
+- **Tür:** Test / CI bug fix
+- **Amaç:** Run `364`'te başarısız olan MainActivity instrumentation smoke testini gerçek hata nedenine göre stabilize etmek.
+- **Önceki gerçek durum:** `main` HEAD `d582dd3d85acc6b8a257dca1d9afb2d88e2e4a44` idi; Run `364` / Run ID `34381820850` **completed / failure** durumundaydı. Unit tests başarıyla tamamlanmış, failure instrumentation smoke testinde oluşmuştu.
+- **CI bulgusu:** `MainActivity` açıldı; ancak smoke testi `Haritalar • GPS bekleniyor` metnini doğrulayamadan başarısız oldu. `MainActivity` içinde bu durum metni ilk anda veriliyor, MapLibre style callback sonrasında `Harita hazır • adres ara veya haritaya dokun` olarak değiştiriliyor. Bu nedenle test geçici bir UI durumuna zaman bağımlıydı.
+- **Gerçek neden:** Smoke testi uygulama açılışını doğrulamak yerine kısa ömürlü status text'e bağlanmıştı.
+- **Yapılan:** `app/src/androidTest/java/com/haritalar/app/MainActivitySmokeTest.kt` içindeki assertionlar daha stabil başlangıç kontrollerine çevrildi. Search alanının `Nereye gitmek istiyorsun?` hint'i ve `Ara` butonunun görünür olması doğrulanıyor.
+- **Değişen dosya:** `app/src/androidTest/java/com/haritalar/app/MainActivitySmokeTest.kt`
+- **Commit:** `3f8446cbf37b4f835659373b97c709f031f65b9d`
+- **Commit mesajı:** `test(android): stabilize MainActivity smoke assertion`
+- **GitHub doğrulaması:** Commit ve yeni blob SHA `d37e66f72ed2603ce0743e41afe86c0a82b7f4ff` gerçek GitHub'dan tekrar okundu.
+- **Test:** Yeni CI sonucu bu log kaydı oluşturulurken henüz kesinleşmemiştir.
+- **CI:** Run `364` failure olarak kalır; bu kayıt sonrasında yeni push ile yeni workflow run tetiklenmesi beklenir.
+- **APK:** Yeni düzeltme için APK henüz doğrulanmadı.
+- **Sonuç:** Run `364` failure nedenine yönelik en küçük güvenli test değişikliği GitHub'a uygulandı ve commit doğrulandı.
+- **Sonraki adım:** Yeni CI run'ını gerçek GitHub'dan doğrula; smoke test yeşil olursa debug APK/artifact'i doğrula. Başarısızsa yeni failure loguna göre devam et.
