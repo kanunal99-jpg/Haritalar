@@ -51,6 +51,23 @@ jobs:
           disable-animations: true
           script: gradle connectedDebugAndroidTest --stacktrace
 
+      - name: Capture Android instrumentation diagnostics
+        if: always()
+        run: |
+          mkdir -p app/build/ci-diagnostics
+          adb devices -l > app/build/ci-diagnostics/adb-devices.txt || true
+          adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat.txt || true
+          find app/build/reports/androidTests -type f -maxdepth 6 -print > app/build/ci-diagnostics/android-test-report-files.txt 2>/dev/null || true
+
+      - name: Upload Android instrumentation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: haritalar-android-instrumentation-diagnostics-${{ github.run_number }}
+          path: app/build/ci-diagnostics
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
