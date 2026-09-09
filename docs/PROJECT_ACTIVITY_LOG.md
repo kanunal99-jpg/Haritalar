@@ -370,3 +370,23 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **Amaç:** #0104 ve #0105 operasyonlarını append-only activity log'a kaydetmek.
 - **Yapılan:** Bu kayıt eklendi.
 - **Sonraki CI:** Bu log commit'i yeni Android APK workflow run'ı tetikleyecektir.
+
+## İşlem #0107 — TrafficRefreshCoordinator generation/in-flight yarış testleri
+
+- **Tarih:** 2026-09-09
+- **Tür:** Test / dayanıklılık
+- **Amaç:** Navigation traffic refresh zincirindeki stale-generation ve eşzamanlı in-flight korumasını daha güçlü unit coverage ile doğrulamak.
+- **Önceki gerçek durum:** `TrafficRefreshCoordinatorTest.kt` mevcut cooldown, reset, running-refresh→Stale ve blocking bridge senaryolarını içeriyordu; ancak stale sonucun sonraki generation'ın sonucunu/cooldown'unu bozmadığı ve ikinci eşzamanlı refresh'in ranking başlatmadığı ayrı testlerle doğrulanmıyordu.
+- **Kontrol edilen dosyalar:** `TrafficRefreshCoordinator.kt`, `TrafficRefreshCoordinatorTest.kt`.
+- **Yapılan:** `TrafficRefreshCoordinatorTest.kt` içine iki odaklı test eklendi:
+  1. `stale refresh does not poison next generation result or cooldown` — reset sonrası eski sonuç Stale kalırken yeni generation'ın hemen refresh edilebildiğini ve yeni cooldown'un doğru kurulduğunu doğrular.
+  2. `in flight refresh suppresses a concurrent duplicate` — çalışan ranking sırasında ikinci refresh'in `Skipped` olduğunu ve ranker'ın yalnız bir kez çağrıldığını doğrular.
+- **Ek düzenleme:** `TimeUnit` import edilerek mevcut beklemeler sadeleştirildi; davranış değişikliği yoktur.
+- **Değişen dosya:** `core/src/test/kotlin/com/haritalar/core/traffic/TrafficRefreshCoordinatorTest.kt`
+- **Commit:** `161098fa08712ed80c19fb0006beb61331235778`
+- **Commit mesajı:** `test(traffic): cover coordinator generation and in-flight races`
+- **Yerel test:** Bu ortamda Android/Gradle build çalıştırılmadı.
+- **CI:** Bu commit için yeni GitHub Actions sonucu henüz doğrulanmadı.
+- **APK:** Henüz doğrulanmadı.
+- **Sonuç:** Race/stale coverage gerçek GitHub'a işlendi. Üretim kodunda değişiklik yapılmadı; mevcut coordinator davranışının sınırları testlerle güçlendirildi.
+- **Sonraki adım:** Bu commitin CI sonucunu doğrula; başarılıysa APK artifactini kontrol et. Ardından `PROJECT_DETAILS.md` ve çalışma promptundaki backlog'u yeni test kapsamıyla senkronize et.
