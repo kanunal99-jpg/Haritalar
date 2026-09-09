@@ -34,8 +34,6 @@ object OsmPoiParser {
                 longitude = coordinate.second,
                 address = address,
                 openingHours = tags.optString("opening_hours").trim().ifBlank { null },
-                // Only expose an actual remote image URL from OSM. A filename or
-                // Wikimedia tag is deliberately not turned into a guessed URL.
                 imageUrl = remoteUrl(tags.optString("image").trim()),
                 streetImageUrl = remoteUrl(tags.optString("street_image_url").trim()),
             )
@@ -69,11 +67,14 @@ object OsmPoiParser {
         tags.optString("amenity") == "charging_station" -> NavigationPoiCategory.CHARGING_STATION
         tags.optString("amenity") == "place_of_worship" -> NavigationPoiCategory.PLACE_OF_WORSHIP
         tags.optString("public_transport") in setOf("platform", "station", "stop_position") || tags.has("public_transport") -> NavigationPoiCategory.TRANSIT
-        tags.optString("shop") in setOf("supermarket", "convenience", "mall", "department_store") -> NavigationPoiCategory.MARKET
+        tags.optString("shop") in setOf("supermarket", "convenience", "mall", "department_store", "bakery", "butcher", "clothes", "electronics", "hardware", "furniture") -> NavigationPoiCategory.MARKET
+        tags.optString("amenity") == "marketplace" -> NavigationPoiCategory.MARKET
         tags.optString("leisure") == "park" -> NavigationPoiCategory.PARK
         tags.optString("amenity") == "rest_area" || tags.optString("highway") == "rest_area" -> NavigationPoiCategory.REST_AREA
         tags.optString("tourism") == "hotel" -> NavigationPoiCategory.HOTEL
         tags.optString("tourism") in setOf("attraction", "museum", "viewpoint") -> NavigationPoiCategory.TOURISM
+        tags.optString("amenity") in setOf("townhall", "courthouse", "police", "fire_station", "post_office", "library", "community_centre") -> NavigationPoiCategory.PUBLIC_INSTITUTION
+        tags.optString("office") in setOf("government", "administrative") || tags.has("government") -> NavigationPoiCategory.PUBLIC_INSTITUTION
         else -> null
     }
 }
