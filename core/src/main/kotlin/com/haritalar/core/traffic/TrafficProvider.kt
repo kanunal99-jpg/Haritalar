@@ -36,7 +36,10 @@ data class TrafficSnapshot(
     val confidence: TrafficConfidence,
 ) {
     fun isUsable(nowEpochMs: Long): Boolean =
-        fetchedAtEpochMs > 0L && expiresAtEpochMs > nowEpochMs
+        fetchedAtEpochMs > 0L &&
+            expiresAtEpochMs > nowEpochMs &&
+            providerId.isNotBlank() &&
+            segments.all { it.isValid() }
 }
 
 data class TrafficSegment(
@@ -51,7 +54,20 @@ data class TrafficSegment(
     val confidence: TrafficConfidence = TrafficConfidence.LOW,
     /** Provider geometry used to verify that an observation belongs to a route. */
     val geometry: List<GeoCoordinate> = emptyList(),
-)
+) {
+    fun isValid(): Boolean =
+        id.isNotBlank() &&
+            speedKmh.isFiniteOrNullNonNegative() &&
+            freeFlowSpeedKmh.isFiniteOrNullPositive() &&
+            directionBearingDegrees.isValidBearing() &&
+            geometry.all { it.latitude.isFinite() && it.longitude.isFinite() && it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 }
+}
+
+private fun Double?.isFiniteOrNullNonNegative(): Boolean = this == null || (isFinite() && this >= 0.0)
+
+private fun Double?.isFiniteOrNullPositive(): Boolean = this == null || (isFinite() && this > 0.0)
+
+private fun Double?.isValidBearing(): Boolean = this == null || (isFinite() && this in 0.0..360.0)
 
 enum class TrafficCongestion { UNKNOWN, FREE, LIGHT, MODERATE, HEAVY, SEVERE }
 enum class TrafficConfidence { LOW, MEDIUM, HIGH }
