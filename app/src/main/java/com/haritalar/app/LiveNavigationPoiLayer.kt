@@ -175,14 +175,22 @@ class LiveNavigationPoiLayer(
         if (key == lastBoundsKey) return
         lastBoundsKey = key
         refreshRunnable?.let(mainHandler::removeCallbacks)
-        val runnable = Runnable { refresh(south, west, north, east) }
+        val runnable = Runnable {
+            if (lastBoundsKey != key) return@Runnable
+            refresh(south, west, north, east)
+        }
         refreshRunnable = runnable
         mainHandler.postDelayed(runnable, DEBOUNCE_MS)
     }
 
     private fun refresh(south: Double, west: Double, north: Double, east: Double) {
         val now = System.currentTimeMillis()
-        if (now - lastRefreshAt < MIN_REFRESH_MS) return
+        val elapsed = now - lastRefreshAt
+        if (elapsed < MIN_REFRESH_MS) {
+            val retryDelay = (MIN_REFRESH_MS - elapsed).coerceAtLeast(100L)
+            refreshRunnable?.let { mainHandler.postDelayed(it, retryDelay) }
+            return
+        }
         lastRefreshAt = now
         executor.execute {
             try {
