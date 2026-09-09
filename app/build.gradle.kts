@@ -39,4 +39,6 @@ dependencies {
     implementation(project(":core"))
     implementation("org.maplibre.gl:android-sdk:13.4.1")
     testImplementation(kotlin("test"))
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }
