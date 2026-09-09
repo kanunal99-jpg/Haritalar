@@ -12,6 +12,19 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Apply pending traffic map patch
+        shell: bash
+        run: |
+          if [ -f .github/traffic-map-patch.pending ]; then
+            python3 scripts/apply_traffic_map_colors.py
+            rm .github/traffic-map-patch.pending
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/src/main/java/com/haritalar/app/MainActivity.kt core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentation.kt core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentationTest.kt docs/operations/OP-0402-traffic-route-map-live-colors.md .github/traffic-map-patch.pending
+            git commit -m "feat(traffic): render verified route segment colors"
+            git push
+            exit 0
+          fi
       - name: Amend constitution
         shell: python
         run: |
