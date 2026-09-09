@@ -26,6 +26,7 @@ import com.haritalar.core.navigation.NavigationPoiDetails
 import com.haritalar.core.navigation.NavigationProgressEngine
 import com.haritalar.core.navigation.ValhallaRoutePolicy
 import com.haritalar.core.navigation.TollBridge
+import com.haritalar.core.traffic.TrafficRefreshCoordinator
 import com.haritalar.core.traffic.TrafficRouteRanking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -88,6 +89,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var lastRerouteAt = 0L
     private val navigationEngine = NavigationProgressEngine()
     private val trafficRankingService = TrafficEngineFactory.createRankingService()
+    private val trafficRefreshCoordinator = TrafficRefreshCoordinator()
+    private var trafficRouteOptions: List<RouteOption> = emptyList()
+    private var lastTrafficByRoute: Map<String, RouteTrafficUiModel> = emptyMap()
     private var ttsReady = false
     private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
     private var routeGeneration = 0
@@ -119,7 +123,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             } else {
                 status.text = "GPS aktif • %.5f, %.5f".format(location.latitude, location.longitude)
             }
-            if (navigationActive) followLocation(location)
+            if (navigationActive) {
+                followLocation(location)
+                refreshTrafficForNavigation()
+            }
         }
     }
 
@@ -349,6 +356,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         poiPanel.visibility = View.GONE
         destination = point
         navigationActive = false
+        trafficRefreshCoordinator.reset()
+        trafficRouteOptions = emptyList()
+        lastTrafficByRoute = emptyMap()
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
         navigationEngine.reset()
         routePanel.visibility = View.VISIBLE
@@ -443,6 +453,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
             NavigationProgressEngine.Event.Arrived -> {
                 navigationActive = false
+                trafficRefreshCoordinator.reset()
+                trafficRouteOptions = emptyList()
+                lastTrafficByRoute = emptyMap()
                 locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
                 navigationButton.visibility = View.GONE
                 speak("Hedefinize ulaştınız.", true)
@@ -458,6 +471,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (rerouteInFlight || now - lastRerouteAt < REROUTE_COOLDOWN_MS) return
         rerouteInFlight = true
         lastRerouteAt = now
+        routeGeneration += 1
+        trafficRefreshCoordinator.reset()
+        lastTrafficByRoute = emptyMap()
         requestSingleRoute(location.latitude, location.longitude, target.latitude, target.longitude, "Yeniden rota", "auto") { option ->
             rerouteInFlight = false
             applyRoute(option, true)
@@ -466,6 +482,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun requestRouteOptions(origin: Location, target: LatLng) {
         val generation = ++routeGeneration
+        trafficRefreshCoordinator.reset()
+        trafficRouteOptions = emptyList()
+        lastTrafficByRoute = emptyMap()
         val specs = listOf(
             Triple("En hızlı", "Hızlı rota • ücretli/feribot geçişleri kullanılabilir", "auto"),
             Triple("En kısa", "Mesafeyi azaltır", "auto_shorter"),
@@ -481,8 +500,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         fun rankAndRenderIfComplete() {
             if (remaining.decrementAndGet() != 0) return
             val snapshot = results.toList()
+            if (generation != routeGeneration) return
+            trafficRouteOptions = snapshot
             routeExecutor.execute {
-                val trafficByRoute = runCatching {
+                val result = runCatching {
                     val candidates = snapshot.map { option ->
                         TrafficRouteRanking.RouteCandidate(
                             routeId = routeSignature(option),
@@ -490,13 +511,27 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                             baseDurationSeconds = option.durationSeconds.coerceAtLeast(0.0).roundToLong(),
                         )
                     }
-                    val ranked = trafficRankingService.rankBlocking(candidates)
-                    ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
-                        .associate { (candidate, model) -> candidate.routeId to model }
-                }.getOrElse { emptyMap() }
-
+                    trafficRefreshCoordinator.refreshBlocking(
+                        routes = candidates,
+                        nowEpochMs = System.currentTimeMillis(),
+                    ) { routes, nowEpochMs ->
+                        trafficRankingService.rank(routes, nowEpochMs)
+                    }
+                }
                 runOnUiThread {
-                    if (generation == routeGeneration) renderRouteOptions(snapshot, trafficByRoute)
+                    if (generation != routeGeneration) return@runOnUiThread
+                    val trafficByRoute = result.getOrNull()?.let { coordinatorResult ->
+                        when (coordinatorResult) {
+                            is TrafficRefreshCoordinator.Result.Refreshed -> coordinatorResult.ranked
+                            is TrafficRefreshCoordinator.Result.Skipped -> coordinatorResult.ranked
+                            is TrafficRefreshCoordinator.Result.Stale -> emptyList()
+                        }.let { ranked ->
+                            ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
+                                .associate { (candidate, model) -> candidate.routeId to model }
+                        }
+                    }.orEmpty()
+                    lastTrafficByRoute = trafficByRoute
+                    if (!navigationActive) renderRouteOptions(snapshot, trafficByRoute)
                 }
             }
         }
@@ -507,7 +542,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     val option = fetchRoute(origin.latitude, origin.longitude, target.latitude, target.longitude, spec.first, spec.second, spec.third)
                     results.add(option)
                     runOnUiThread {
-                        if (generation == routeGeneration) renderRouteOptions(results.toList())
+                        if (generation == routeGeneration) renderRouteOptions(results.toList(), lastTrafficByRoute)
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
@@ -515,6 +550,42 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     }
                 } finally {
                     rankAndRenderIfComplete()
+                }
+            }
+        }
+    }
+
+    private fun refreshTrafficForNavigation() {
+        if (!navigationActive) return
+        val generation = routeGeneration
+        val routes = trafficRouteOptions
+        if (routes.isEmpty()) return
+        val candidates = routes.map { option ->
+            TrafficRouteRanking.RouteCandidate(
+                routeId = routeSignature(option),
+                coordinates = option.points.map { GeoCoordinate(it.latitude, it.longitude) },
+                baseDurationSeconds = option.durationSeconds.coerceAtLeast(0.0).roundToLong(),
+            )
+        }
+        routeExecutor.execute {
+            val result = runCatching {
+                trafficRefreshCoordinator.refreshBlocking(
+                    routes = candidates,
+                    nowEpochMs = System.currentTimeMillis(),
+                ) { rankingRoutes, nowEpochMs ->
+                    trafficRankingService.rank(rankingRoutes, nowEpochMs)
+                }
+            }.getOrNull() ?: return@execute
+            val ranked = when (result) {
+                is TrafficRefreshCoordinator.Result.Refreshed -> result.ranked
+                is TrafficRefreshCoordinator.Result.Skipped -> result.ranked
+                is TrafficRefreshCoordinator.Result.Stale -> return@execute
+            }
+            val trafficByRoute = ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
+                .associate { (candidate, model) -> candidate.routeId to model }
+            runOnUiThread {
+                if (generation == routeGeneration && navigationActive) {
+                    lastTrafficByRoute = trafficByRoute
                 }
             }
         }
@@ -610,6 +681,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun applyRoute(option: RouteOption, isReroute: Boolean) {
+        routeGeneration += if (isReroute) 1 else 0
+        if (isReroute) {
+            trafficRefreshCoordinator.reset()
+            trafficRouteOptions = listOf(option)
+            lastTrafficByRoute = emptyMap()
+        }
         routePoints = option.points
         routeCumulativeMeters = option.cumulativeMeters
         routeTotalMeters = option.totalMeters
@@ -624,6 +701,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             applyNavigationCamera()
             status.text = "Yeni rota aktif • %.1f km • %.0f dk".format(option.distanceKm, option.durationSeconds / 60.0)
             speak("Yeni rota hesaplandı.", true)
+            refreshTrafficForNavigation()
         } else {
             navigationActive = false
             locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
@@ -637,6 +715,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             routePanel.addView(makeActionButton("Rotaya Başla") { startNavigation() }, LinearLayout.LayoutParams(-1, 60))
             routePanel.addView(makeActionButton("Başka rota seç") {
                 navigationActive = false
+                trafficRefreshCoordinator.reset()
+                trafficRouteOptions = emptyList()
+                lastTrafficByRoute = emptyMap()
                 locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
                 routePanel.visibility = View.VISIBLE
                 status.text = "Rota seçeneklerinden birini seçin"
@@ -660,6 +741,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         followLocation(lastLocation!!)
         speak(START_TTS, true)
         status.text = "Navigasyon başladı • rota takip ediliyor"
+        refreshTrafficForNavigation()
     }
 
     private fun applyNavigationCamera() {
@@ -676,6 +758,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun stopNavigation() {
         navigationActive = false
         rerouteInFlight = false
+        trafficRefreshCoordinator.reset()
+        trafficRouteOptions = emptyList()
+        lastTrafficByRoute = emptyMap()
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
         navigationButton.visibility = View.GONE
         mapView.getMapAsync { map ->
