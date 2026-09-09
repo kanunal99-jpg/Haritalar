@@ -57,7 +57,16 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-boot-timeout: 300
-          script: gradle connectedDebugAndroidTest --stacktrace
+          script: |
+            set +e
+            gradle connectedDebugAndroidTest --stacktrace
+            test_rc=$?
+            mkdir -p app/build/ci-live-diagnostics
+            timeout 20s adb devices -l > app/build/ci-live-diagnostics/adb-devices.txt || true
+            timeout 20s adb shell dumpsys activity activities > app/build/ci-live-diagnostics/activity-state.txt || true
+            timeout 20s adb shell dumpsys package com.haritalar.app > app/build/ci-live-diagnostics/package-state.txt || true
+            timeout 30s adb logcat -d -v threadtime > app/build/ci-live-diagnostics/logcat.txt || true
+            exit $test_rc
 
       - name: Capture Android instrumentation diagnostics
         if: always()
@@ -73,6 +82,15 @@ jobs:
         with:
           name: haritalar-android-instrumentation-diagnostics-${{ github.run_number }}
           path: app/build/ci-diagnostics
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload live Android smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: haritalar-android-live-smoke-diagnostics-${{ github.run_number }}
+          path: app/build/ci-live-diagnostics
           if-no-files-found: warn
           retention-days: 30
 
