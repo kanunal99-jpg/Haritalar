@@ -118,6 +118,26 @@ class TrafficRouteMatcherTest {
         assertTrue(distance in 170.0..190.0)
     }
 
+    @Test
+    fun `scattered route points are ignored even when total overlap passes`() {
+        val matched = TrafficRouteMatcher.match(
+            route,
+            listOf(
+                segment(
+                    id = "scattered",
+                    geometry = listOf(
+                        GeoCoordinate(41.0002, 29.0000),
+                        GeoCoordinate(41.0100, 29.0100),
+                        GeoCoordinate(41.0012, 29.0000),
+                        GeoCoordinate(41.0110, 29.0100),
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(matched.isEmpty())
+    }
+
     private fun segment(
         id: String,
         geometry: List<GeoCoordinate>,

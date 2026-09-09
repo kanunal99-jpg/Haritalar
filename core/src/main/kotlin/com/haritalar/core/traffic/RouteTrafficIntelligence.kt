@@ -46,6 +46,8 @@ object RouteTrafficIntelligence {
 
         val live = segment.speedKmh
         val freeFlow = segment.freeFlowSpeedKmh
-        return live != null && freeFlow != null && live > 0.0 && freeFlow > 0.0
+        return live != null && freeFlow != null &&
+            live.isFinite() && freeFlow.isFinite() &&
+            live > 0.0 && freeFlow > 0.0
     }
 }

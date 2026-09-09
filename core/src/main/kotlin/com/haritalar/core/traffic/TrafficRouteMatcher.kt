@@ -33,8 +33,19 @@ object TrafficRouteMatcher {
 
         return segments.mapNotNull { segment ->
             if (segment.confidence == TrafficConfidence.LOW || segment.geometry.size < 2) return@mapNotNull null
-            val overlapRatio = geometryOverlapRatio(route, segment.geometry, toleranceMeters)
+            val matchedPoints = segment.geometry.map { point ->
+                route.zipWithNext().any { (a, b) -> pointToSegmentDistanceMeters(point, a, b) <= toleranceMeters }
+            }
+            val overlapRatio = matchedPoints.count { it }.toDouble() / matchedPoints.size.toDouble()
             if (overlapRatio < minOverlapRatio) return@mapNotNull null
+
+            // A scattered set of coincident points can pass the total-overlap
+            // check while the provider geometry actually belongs to another
+            // road. Require one contiguous run of supported geometry so traffic
+            // cannot leak across unrelated roads or disconnected branches.
+            val longestContiguousRun = longestTrueRun(matchedPoints)
+            val contiguousOverlapRatio = longestContiguousRun.toDouble() / matchedPoints.size.toDouble()
+            if (contiguousOverlapRatio < minOverlapRatio) return@mapNotNull null
 
             val trafficBearing = segment.directionBearingDegrees
             if (trafficBearing != null) {
@@ -52,15 +63,14 @@ object TrafficRouteMatcher {
         }
     }
 
-    private fun geometryOverlapRatio(
-        route: List<GeoCoordinate>,
-        geometry: List<GeoCoordinate>,
-        toleranceMeters: Double,
-    ): Double {
-        val matched = geometry.count { point ->
-            route.zipWithNext().any { (a, b) -> pointToSegmentDistanceMeters(point, a, b) <= toleranceMeters }
+    private fun longestTrueRun(values: List<Boolean>): Int {
+        var current = 0
+        var longest = 0
+        for (value in values) {
+            current = if (value) current + 1 else 0
+            longest = maxOf(longest, current)
         }
-        return matched.toDouble() / geometry.size.toDouble()
+        return longest
     }
 
     private fun nearestRouteBearing(

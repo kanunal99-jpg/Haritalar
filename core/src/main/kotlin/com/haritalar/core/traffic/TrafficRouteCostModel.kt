@@ -12,24 +12,28 @@ object TrafficRouteCostModel {
     ): Long {
         if (baseDurationSeconds <= 0L || segments.isEmpty()) return baseDurationSeconds
 
-        val baseDistance = segments.sumOf { it.distanceMeters.coerceAtLeast(0.0) }
-        if (baseDistance <= 0.0) return baseDurationSeconds
+        val validSegments = segments.filter { it.distanceMeters.isFinite() && it.distanceMeters > 0.0 }
+        if (validSegments.isEmpty()) return baseDurationSeconds
 
-        val weightedFactor = segments.sumOf { segment ->
-            segment.distanceMeters.coerceAtLeast(0.0) * durationFactor(segment.traffic)
+        val baseDistance = validSegments.sumOf { it.distanceMeters }
+        if (!baseDistance.isFinite() || baseDistance <= 0.0) return baseDurationSeconds
+
+        val weightedFactor = validSegments.sumOf { segment ->
+            segment.distanceMeters * durationFactor(segment.traffic)
         } / baseDistance
+        if (!weightedFactor.isFinite()) return baseDurationSeconds
 
-        return kotlin.math.ceil(baseDurationSeconds * weightedFactor.coerceAtLeast(1.0)).toLong()
+        val adjusted = kotlin.math.ceil(baseDurationSeconds.toDouble() * weightedFactor.coerceAtLeast(1.0))
+        if (!adjusted.isFinite() || adjusted >= Long.MAX_VALUE.toDouble()) return Long.MAX_VALUE
+        return adjusted.toLong().coerceAtLeast(baseDurationSeconds)
     }
 
     private fun durationFactor(segment: TrafficSegment): Double {
-        // A verified closure must materially penalize the route even when the
-        // provider cannot supply live/free-flow speeds for the closed segment.
         if (segment.closure) return CLOSED_SEGMENT_FACTOR
 
         val live = segment.speedKmh
         val freeFlow = segment.freeFlowSpeedKmh
-        if (live == null || freeFlow == null || live <= 0.0 || freeFlow <= 0.0) return 1.0
+        if (live == null || freeFlow == null || !live.isFinite() || !freeFlow.isFinite() || live <= 0.0 || freeFlow <= 0.0) return 1.0
         return (freeFlow / live).coerceIn(1.0, MAX_CONGESTION_FACTOR)
     }
 
