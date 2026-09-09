@@ -151,8 +151,8 @@ class TrafficRefreshCoordinatorTest {
         assertTrue(started.await(2, TimeUnit.SECONDS))
 
         secondResult.set(await { coordinator.refresh(listOf(route), 1_001L, ranker) })
-        assertIs<TrafficRefreshCoordinator.Result.Skipped>(secondResult.get())
-        assertEquals(emptyList(), secondResult.get().ranked)
+        val skipped = assertIs<TrafficRefreshCoordinator.Result.Skipped>(secondResult.get())
+        assertEquals(emptyList(), skipped.ranked)
         assertEquals(1, calls.get())
 
         release.countDown()
