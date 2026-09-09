@@ -1,22 +1,52 @@
 package com.haritalar.app
 
+import android.os.ParcelFileDescriptor
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withText
-import androidx.test.ext.junit.rules.ActivityScenarioRule
-import org.junit.Rule
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
-    @get:Rule
-    val activityRule = ActivityScenarioRule(MainActivity::class.java)
-
     @Test
     fun mainActivityLaunchesAndShowsInitialStatus() {
-        onView(withText("Haritalar • GPS bekleniyor")).check(matches(isDisplayed()))
+        val scenario = try {
+            ActivityScenario.launch(MainActivity::class.java)
+        } catch (error: Throwable) {
+            throw AssertionError("MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
+        }
+
+        try {
+            onView(withText("Haritalar • GPS bekleniyor")).check(matches(isDisplayed()))
+        } catch (error: Throwable) {
+            throw AssertionError("MainActivity launched but initial status was not verified. Live diagnostics:\n${liveDiagnostics()}", error)
+        } finally {
+            scenario.close()
+        }
+    }
+
+    private fun liveDiagnostics(): String {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val uiAutomation = instrumentation.uiAutomation
+        return buildString {
+            append("--- activity state ---\n")
+            append(readShell(uiAutomation.executeShellCommand("dumpsys activity activities"), 12_000))
+            append("\n--- package state ---\n")
+            append(readShell(uiAutomation.executeShellCommand("dumpsys package com.haritalar.app"), 12_000))
+            append("\n--- error logcat ---\n")
+            append(readShell(uiAutomation.executeShellCommand("logcat -d -v threadtime *:E"), 24_000))
+        }
+    }
+
+    private fun readShell(descriptor: ParcelFileDescriptor, maxChars: Int): String {
+        return ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { reader ->
+            val text = reader.readText()
+            if (text.length <= maxChars) text else text.takeLast(maxChars)
+        }
     }
 }
