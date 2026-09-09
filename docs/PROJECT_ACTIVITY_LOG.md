@@ -450,7 +450,7 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **Öğrenim:** Append-only log üzerinde update yapılırken önceki tam blob mutlaka korunmalı; yalnızca son satırların gönderilmesi kabul edilemez.
 - **Test:** Dokümantasyon içeriği GitHub write ile doğrulanacak.
 - **CI/APK:** Bu recovery commitinden sonra yeni Android APK workflow sonucu ayrıca doğrulanacak.
-- **Sonuç:** Tarihçe kaybı kalıcı olmadan düzeltme yapıldı ve hata gizlenmeden kaydedildi.
+- **Sonuç:** Tarihçe kaybı kalıcı olmadan düzeltildi ve hata gizlenmeden kaydedildi.
 - **Sonraki adım:** Recovery commitini GitHub'da doğrula, CI/APK sonucunu kontrol et ve bundan sonra instrumentation/smoke test altyapısına geç.
 
 ## İşlem #0112 — MainActivity smoke testindeki zaman bağımlı assertion düzeltildi
@@ -471,3 +471,21 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **APK:** Yeni düzeltme için APK henüz doğrulanmadı.
 - **Sonuç:** Run `364` failure nedenine yönelik en küçük güvenli test değişikliği GitHub'a uygulandı ve commit doğrulandı.
 - **Sonraki adım:** Yeni CI run'ını gerçek GitHub'dan doğrula; smoke test yeşil olursa debug APK/artifact'i doğrula. Başarısızsa yeni failure loguna göre devam et.
+
+## İşlem #0113 — MainActivity instrumentation testinde location permission önkoşulu eklendi
+
+- **Tarih:** 2026-09-09
+- **Tür:** Test altyapısı / CI bug fix
+- **Amaç:** Run `366` failure'ında MainActivity kontrollerinin sistem konum izni diyaloğu arkasında kalabilmesi nedeniyle smoke testinin yanlış negatif üretmesini gidermek.
+- **Önceki gerçek durum:** `main` HEAD `706310f74b38bff8208296875f87e6bd5ee3a05b`; Run `366` / Run ID `34382658235` **completed / failure**. Unit tests success; instrumentation smoke test failure; debug APK adımları test failure nedeniyle skipped.
+- **CI bulgusu:** Run `366` emulator üzerinde `MainActivity` testine başladı; test "initial controls were not verified" ile başarısız oldu. Aynı akışta uygulama `onCreate()` sonunda `requestLocationPermission()` çağırıyor. Manifest'te FINE/COARSE location izinleri mevcut. Smoke test bu runtime izinlerini önceden vermiyordu.
+- **Yapılan:** `app/build.gradle.kts` içine `androidx.test:rules:1.6.1` androidTest bağımlılığı eklendi. `MainActivitySmokeTest.kt` içine `GrantPermissionRule` ile FINE ve COARSE location izinleri Activity launch öncesinde verildi.
+- **Değişen dosyalar:** `app/build.gradle.kts`, `app/src/androidTest/java/com/haritalar/app/MainActivitySmokeTest.kt`
+- **Commitler:** `351059d8a321a28cf70e2143af3a881e171e505d` (`test(android): add runtime permission test rule`), `5e491ffe443dbe5d033617268bc35b80e1e21f24` (`test(android): grant location permissions before MainActivity smoke`)
+- **GitHub doğrulaması:** Her iki commit doğrudan `main` branch'e yazıldı ve GitHub write sonucu SHA ile doğrulandı.
+- **Yerel test:** Bu ortamda Android/Gradle test çalıştırılmadı.
+- **CI:** Yeni CI bu kayıt yazılırken henüz kesinleşmedi.
+- **APK:** Yeni düzeltme için henüz doğrulanmadı.
+- **Sonuç:** Smoke testin bilinen runtime permission önkoşulu gerçek test harness'inde karşılandı; production navigation kodu değiştirilmedi.
+- **Öğrenim:** Android instrumentation testleri, Activity'nin gerçek runtime permission lifecycle'ını açıkça hazırlamalı; yalnız UI assertionlarını değiştirmek yeterli değildir.
+- **Sonraki adım:** Yeni GitHub Actions run'ını doğrula. Failure devam ederse diagnostics artifact/log üzerinden kalan gerçek nedeni izole et; success olursa APK artifact'i doğrula.
