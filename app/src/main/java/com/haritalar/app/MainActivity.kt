@@ -27,7 +27,9 @@ import com.haritalar.core.navigation.NavigationProgressEngine
 import com.haritalar.core.navigation.ValhallaRoutePolicy
 import com.haritalar.core.navigation.TollBridge
 import com.haritalar.core.traffic.TrafficRefreshCoordinator
+import com.haritalar.core.traffic.TrafficRouteMapPresentation
 import com.haritalar.core.traffic.TrafficRouteRanking
+import com.haritalar.core.traffic.TrafficRouteSegment
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
@@ -63,6 +65,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         private const val GEOCODE_ENDPOINT = "https://nominatim.openstreetmap.org/search"
         private const val ROUTE_SOURCE = "haritalar-route-source"
         private const val ROUTE_LAYER = "haritalar-route-layer"
+        private const val TRAFFIC_ROUTE_SOURCE_PREFIX = "haritalar-traffic-route-source-"
+        private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"
         private const val OFF_ROUTE_METERS = 60.0
         private const val REROUTE_COOLDOWN_MS = 15_000L
         private const val START_TTS = "Lanu iyi yolculuklar diler. Emniyet kemerinizi, aynalarınızı ve lastiklerinizi kontrol ediniz. Güvenli yolculuklar."
@@ -94,6 +98,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private val trafficRefreshCoordinator = TrafficRefreshCoordinator()
     private var trafficRouteOptions: List<RouteOption> = emptyList()
     private var lastTrafficByRoute: Map<String, RouteTrafficUiModel> = emptyMap()
+    private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()
     private var ttsReady = false
     private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
     private var routeGeneration = 0
@@ -361,6 +366,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRefreshCoordinator.reset()
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
         navigationEngine.reset()
         routePanel.visibility = View.VISIBLE
@@ -458,6 +464,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 trafficRefreshCoordinator.reset()
                 trafficRouteOptions = emptyList()
                 lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
                 locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
                 navigationButton.visibility = View.GONE
                 speak("Hedefinize ulaştınız.", true)
@@ -476,6 +483,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         routeGeneration += 1
         trafficRefreshCoordinator.reset()
         lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         requestSingleRoute(location.latitude, location.longitude, target.latitude, target.longitude, "Yeniden rota", "auto") { option ->
             rerouteInFlight = false
             applyRoute(option, true)
@@ -487,6 +495,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRefreshCoordinator.reset()
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         val specs = listOf(
             Triple("En hızlı", "Hızlı rota • ücretli/feribot geçişleri kullanılabilir", "auto"),
             Triple("En kısa", "Mesafeyi azaltır", "auto_shorter"),
@@ -533,7 +542,22 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                         }
                     }.orEmpty()
                     lastTrafficByRoute = trafficByRoute
-                    if (!navigationActive) renderRouteOptions(snapshot, trafficByRoute)
+                    if (!navigationActive) {
+                        val detailedSegments = runCatching {
+                            trafficRankingService.rankDetailed(
+                                snapshot.map { option ->
+                                    TrafficRouteRanking.RouteCandidate(
+                                        routeId = routeSignature(option),
+                                        coordinates = option.points.map { GeoCoordinate(it.latitude, it.longitude) },
+                                        baseDurationSeconds = option.durationSeconds.coerceAtLeast(0.0).roundToLong(),
+                                    )
+                                },
+                                System.currentTimeMillis(),
+                            ).matchedSegmentsByRoute
+                        }.getOrDefault(emptyMap())
+                        lastTrafficSegmentsByRoute = detailedSegments
+                        renderRouteOptions(snapshot, trafficByRoute)
+                    }
                 }
             }
         }
@@ -588,9 +612,14 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     }
                     val trafficByRoute = ranked.zip(RouteTrafficPresentation.fromRanked(ranked))
                         .associate { (candidate, model) -> candidate.routeId to model }
+                    val detailedSegments = runCatching {
+                        trafficRankingService.rankDetailed(candidates, System.currentTimeMillis()).matchedSegmentsByRoute
+                    }.getOrDefault(emptyMap())
                     runOnUiThread {
                         if (generation == routeGeneration && navigationActive) {
                             lastTrafficByRoute = trafficByRoute
+                            lastTrafficSegmentsByRoute = detailedSegments
+                            drawRoute(routePoints, detailedSegments[routeSignatureForCurrentRoute()].orEmpty())
                         }
                     }
                 } finally {
@@ -698,13 +727,14 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             trafficRefreshCoordinator.reset()
             trafficRouteOptions = listOf(option)
             lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         }
         routePoints = option.points
         routeCumulativeMeters = option.cumulativeMeters
         routeTotalMeters = option.totalMeters
         currentManeuvers = option.maneuvers
         navigationEngine.reset()
-        drawRoute(option.points)
+        drawRoute(option.points, lastTrafficSegmentsByRoute[routeSignature(option)].orEmpty())
         if (isReroute) {
             navigationActive = true
             locationComponent?.let { NavigationLocationComponentController.apply(it, true) }
@@ -730,6 +760,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 trafficRefreshCoordinator.reset()
                 trafficRouteOptions = emptyList()
                 lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
                 locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
                 routePanel.visibility = View.VISIBLE
                 status.text = "Rota seçeneklerinden birini seçin"
@@ -773,6 +804,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRefreshCoordinator.reset()
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
         navigationButton.visibility = View.GONE
         mapView.getMapAsync { map ->
@@ -910,17 +942,63 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun drawRoute(points: List<LatLng>) {
+    private fun routeSignatureForCurrentRoute(): String =
+        if (routePoints.isEmpty()) "" else routeSignature(
+            RouteOption(
+                title = "",
+                subtitle = "",
+                points = routePoints,
+                cumulativeMeters = routeCumulativeMeters,
+                totalMeters = routeTotalMeters,
+                distanceKm = routeTotalMeters / 1000.0,
+                durationSeconds = 0.0,
+                toll = false,
+                tollAmountTry = null,
+                tollName = null,
+                ferryUsed = false,
+                maneuvers = currentManeuvers,
+            ),
+        )
+
+    private fun drawRoute(points: List<LatLng>, trafficSegments: List<TrafficRouteSegment> = emptyList()) {
         mapView.getMapAsync { map ->
-            val style = map.style
-            if (style != null) {
-                style.removeLayer(ROUTE_LAYER)
-                style.removeSource(ROUTE_SOURCE)
-                if (points.size >= 2) {
-                    val coords = points.map { org.maplibre.geojson.Point.fromLngLat(it.longitude, it.latitude) }
-                    style.addSource(GeoJsonSource(ROUTE_SOURCE, Feature.fromGeometry(LineString.fromLngLats(coords))))
-                    style.addLayer(LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(6f), lineColor("#1976D2")))
-                }
+            val style = map.style ?: return@getMapAsync
+            style.removeLayer(ROUTE_LAYER)
+            style.removeSource(ROUTE_SOURCE)
+            TrafficRouteMapPresentation.Severity.values().forEach { severity ->
+                val key = severity.name.lowercase(Locale.US)
+                style.removeLayer(TRAFFIC_ROUTE_LAYER_PREFIX + key)
+                style.removeSource(TRAFFIC_ROUTE_SOURCE_PREFIX + key)
+            }
+            if (points.size < 2) return@getMapAsync
+
+            val coords = points.map { org.maplibre.geojson.Point.fromLngLat(it.longitude, it.latitude) }
+            style.addSource(GeoJsonSource(ROUTE_SOURCE, Feature.fromGeometry(LineString.fromLngLats(coords))))
+            style.addLayer(LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(6f), lineColor("#1976D2")))
+
+            TrafficRouteMapPresentation.Severity.values().forEach { severity ->
+                val features = trafficSegments
+                    .filter { TrafficRouteMapPresentation.severityOf(it.traffic) == severity }
+                    .mapNotNull { segment ->
+                        val geometry = segment.traffic.geometry
+                        if (geometry.size < 2) return@mapNotNull null
+                        Feature.fromGeometry(
+                            LineString.fromLngLats(geometry.map { point ->
+                                org.maplibre.geojson.Point.fromLngLat(point.longitude, point.latitude)
+                            }),
+                        )
+                    }
+                if (features.isEmpty()) return@forEach
+                val key = severity.name.lowercase(Locale.US)
+                val sourceId = TRAFFIC_ROUTE_SOURCE_PREFIX + key
+                val layerId = TRAFFIC_ROUTE_LAYER_PREFIX + key
+                style.addSource(GeoJsonSource(sourceId, org.maplibre.geojson.FeatureCollection.fromFeatures(features)))
+                style.addLayer(
+                    LineLayer(layerId, sourceId).withProperties(
+                        lineWidth(7f),
+                        lineColor(TrafficRouteMapPresentation.colorHex(severity)),
+                    ),
+                )
             }
         }
     }
