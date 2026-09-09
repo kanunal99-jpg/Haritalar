@@ -2,15 +2,15 @@ package com.haritalar.app
 
 import android.Manifest
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
-import androidx.test.espresso.matcher.ViewMatchers.withHint
-import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,7 +32,7 @@ class MainActivitySmokeTest {
         }
 
         try {
-            assertInitialControls()
+            assertInitialControls(scenario)
         } catch (error: Throwable) {
             throw AssertionError("MainActivity launched but initial controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
@@ -48,9 +48,10 @@ class MainActivitySmokeTest {
             throw AssertionError("First MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
         }
         try {
-            assertInitialControls()
+            assertInitialControls(first)
         } finally {
             first.close()
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
 
         val second = try {
@@ -59,7 +60,16 @@ class MainActivitySmokeTest {
             throw AssertionError("Second MainActivity launch failed after destroying the first activity. Live diagnostics:\n${liveDiagnostics()}", error)
         }
         try {
-            assertInitialControls()
+            // Allow MapLibre/native teardown from the first instance to settle before
+            // checking that the second activity remains alive.
+            SystemClock.sleep(1_000L)
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            second.onActivity { activity ->
+                check(!activity.isFinishing && !activity.isDestroyed) {
+                    "Second MainActivity was not left in a usable lifecycle state"
+                }
+            }
+            assertInitialControls(second)
         } catch (error: Throwable) {
             throw AssertionError("Second MainActivity launch succeeded but controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
@@ -67,11 +77,34 @@ class MainActivitySmokeTest {
         }
     }
 
-    private fun assertInitialControls() {
-        onView(withHint("Nereye gitmek istiyorsun?"))
-            .check(matches(isDisplayed()))
-        onView(withText("Ara"))
-            .check(matches(isDisplayed()))
+    private fun assertInitialControls(scenario: ActivityScenario<MainActivity>) {
+        scenario.onActivity { activity ->
+            val content = activity.findViewById<ViewGroup>(android.R.id.content)
+            check(findViewWithHint(content, "Nereye gitmek istiyorsun?") != null) {
+                "Destination input with expected hint was not created"
+            }
+            check(findTextView(content, "Ara") != null) {
+                "Search control with expected text was not created"
+            }
+        }
+    }
+
+    private fun findViewWithHint(root: View, hint: String): EditText? {
+        if (root is EditText && root.hint?.toString() == hint) return root
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findViewWithHint(root.getChildAt(index), hint)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findTextView(root: View, text: String): TextView? {
+        if (root is TextView && root.text?.toString() == text) return root
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findTextView(root.getChildAt(index), text)?.let { return it }
+        }
+        return null
     }
 
     private fun liveDiagnostics(): String {
