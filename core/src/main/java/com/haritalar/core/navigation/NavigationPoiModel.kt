@@ -3,7 +3,7 @@ package com.haritalar.core.navigation
 enum class NavigationPoiCategory {
     BUILDING, MARKET, FUEL, REST_AREA, PARKING, RESTAURANT, CAFE, PHARMACY,
     HOSPITAL, HOTEL, SCHOOL, ATM, CHARGING_STATION, PARK, PLACE_OF_WORSHIP,
-    TRANSIT, TOURISM, OTHER,
+    TRANSIT, TOURISM, PUBLIC_INSTITUTION, OTHER,
 }
 
 data class NavigationPoi(
