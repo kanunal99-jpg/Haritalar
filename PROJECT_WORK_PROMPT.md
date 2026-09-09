@@ -32,6 +32,8 @@ Kritik zincir:
 
 `TrafficRouteRankingService` route seti için en fazla bir provider-chain snapshot alır ve geometry-aware ranking uygular. Empty/invalid route, provider/network failure, expired/mismatch/LOW-confidence traffic durumlarında base ETA korunur. `rankBlocking()` suspend `rank()` fonksiyonunu bounded 120 saniyelik blocking bridge üzerinden mevcut Executor akışına bağlar ve ana thread'de kullanılmamalıdır.
 
+Yeni `TrafficRefreshCoordinator`, navigation/route-card çağıran katmanların refresh zamanlamasını ve tekil in-flight ranking isteğini koordine eder. Varsayılan minimum yenileme aralığı 60 saniyedir. `reset()` yeni route generation için cooldown'u temizler ve çalışan eski ranking sonucunu `Stale` olarak işaretler; böylece eski generation sonucu yeni rotaya uygulanmaz. Coordinator provider/fallback mantığını kopyalamaz; verilen canonical ranking fonksiyonunu kullanır.
+
 ## TomTom / credential / refresh
 
 `TomTomTrafficProvider` gerçek TomTom Flow Segment Data endpointini kullanır; key boşsa pasiftir, scraping yoktur ve snapshot/segment doğrulamaları uygulanır. `app/build.gradle.kts` TOMTOM_API_KEY'i Gradle property veya environment variable'dan alır ve `BuildConfig.TOMTOM_API_KEY` üretir. `TrafficEngineFactory`: BuildConfig → TomTomTrafficProvider → TrafficProviderChain → TrafficRouteRankingService.
@@ -48,24 +50,21 @@ Kritik route identity düzeltmesi tamamlandı: ranking adjusted ETA'ya göre sı
 
 Trafik uygulanmadığında kart temel Valhalla ETA'sını gösterir. Doğrulanmış trafik varsa adjusted ETA/delay gösterilebilir; trafik gecikmesi uydurulmaz.
 
-## Bu turda gerçek değişiklikler — 2026-09-08
+## Bu turda gerçek değişiklikler — 2026-09-09
 
-- `43e3f0963dcefffe9504f133f57db88bb2897082` — TomTom örnek noktaları için bounded 30 saniyelik in-memory cache eklendi; süresi dolmuş cache kullanılmıyor ve credential yoksa provider inert kalıyor.
-- `7ee7b2a4a378e2ac3eacbb4f93fd3691189f3ebf` — cache hit/cooldown ve TTL sonrası gerçek HTTP refresh davranışını doğrulayan unit testler eklendi.
-- Bu doküman güncellemesi ile yaşayan durum yeniden senkronize ediliyor.
+- `2c34feb8d8ef56850fd718920165b315cd1fc2c1` — `TrafficRefreshCoordinator` eklendi. 60 saniyelik minimum refresh aralığı, tek in-flight ranking, reset/generation invalidation ve stale sonuç ayrımı sağlandı.
+- `24f63830811337ecebc024ed779aeeeceb124609` — coordinator için cooldown, reset ve çalışan refresh'in stale olması unit testleri eklendi.
+- `7a42a03f1f0f61c0b8f9e3bd2925f6632fbc8672` — önceki TomTom sample cache/test durumu dokümana işlendi.
 
 ## CI / APK — doğrulanmış
 
-Önceki doğrulanmış build:
-- Run `303` (`34274419418`) **success** ve HEAD `1609972c4320855869d7d89126d61ebbee64ef4d` için unit tests + debug APK build başarılı.
-- Run `303` APK artifact: `haritalar-debug-apk-303`.
-- Run `303` artifact içindeki `app-debug.apk` SHA-256: `cb599f1c47e871e3daec0c7705b98bf57da3b26909c9a697f1a794110fe3fe59`.
-
-Bu turdaki yeni cache/test commitleri için yeni CI sonucu henüz doğrulanmış değildir. Bu nedenle bu yeni HEAD için APK hazır denmez.
+- Run `307` (`34275365434`) **success** ve HEAD `7a42a03f1f0f61c0b8f9e3bd2925f6632fbc8672` için unit tests + debug APK build başarılıdır. Build job'da unit tests, debug APK ve artifact/release adımları success durumundadır.
+- Run `307` sonrası eklenen coordinator commitleri için yeni CI sonucu henüz doğrulanmadı. Bu nedenle yeni HEAD için APK hazır denmez.
+- Önceki doğrulanmış Run `303` (`34274419418`) APK artifact: `haritalar-debug-apk-303`; `app-debug.apk` SHA-256: `cb599f1c47e871e3daec0c7705b98bf57da3b26909c9a697f1a794110fe3fe59`.
 
 ## Güncel HEAD
 
-`PROJECT_WORK_PROMPT.md` güncellemesi bu turdaki kod/test commitlerinin üzerine yeni bir commit oluşturur. Bu dosyanın güncelleme commit SHA'sı GitHub'dan tekrar doğrulanacaktır.
+Son doğrulanan GitHub `main` HEAD: `24f63830811337ecebc024ed779aeeeceb124609` (`test(traffic): cover navigation refresh coordination`). Bu doküman güncellemesi üzerine yeni bir commit oluşturacaktır; doküman commit SHA'sı GitHub'dan tekrar doğrulanmalıdır.
 
 ## Başarılı / mevcut
 
@@ -89,15 +88,17 @@ Bu turdaki yeni cache/test commitleri için yeni CI sonucu henüz doğrulanmış
 - routeId-preserving traffic card presentation
 - TomTom sample request bound (8)
 - TomTom short-lived sample cache (30 s)
+- TrafficRefreshCoordinator timing/concurrency/stale-generation primitive
 - Run 303 için başarılı unit tests + debug APK
+- Run 307 için başarılı unit tests + debug APK
 
 ## Açık işler / sonraki hedef
 
-1. Yeni cache/test HEAD için CI'ı doğrula; başarısızsa düzelt.
+1. `24f638...`/doküman HEAD sonrası yeni CI'ı doğrula; başarısızsa gerçek hatayı düzelt.
 2. Gerçek TomTom credential olmadan canlı trafik iddiası yapma; credential sağlandığında gerçek smoke/integration test yap.
-3. Traffic refresh/cooldown/cache mekanizmasını provider-chain seviyesinde route-generation ve navigation refresh ile güvenli biçimde tamamla.
-4. Navigation sırasında live traffic refresh → ranking → UI zincirini bağla.
-5. Off-route/reroute sonrasında aynı traffic ranking/presentation zincirini kontrollü şekilde yeniden çalıştır.
+3. `TrafficRefreshCoordinator`ı MainActivity navigation akışına bağla: GPS callback yalnız cooldown kontrolü yapsın; HTTP/provider çağrısı yalnız background executor'da ve refresh gerektiğinde çalışsın.
+4. Navigation sırasında tüm mevcut route seti üzerinden tek traffic ranking snapshot al; seçili route ve UI stale-generation guard ile korunmalı.
+5. Off-route/reroute sonrasında coordinator `reset()` ile eski traffic sonucunu geçersiz kılmalı ve yeni route generation için kontrollü refresh yapılmalı.
 6. Gerçek traffic-adjusted ranking için integration/smoke coverage artır.
 7. HERE yalnız gerçek API erişimi, authentication, kota ve kullanım şartları doğrulanırsa değerlendir.
 8. Sonrasında safety/radar canlı veri kaynakları yalnız makine-okunabilir ve doğrulanmış resmi/topluluk API erişimi varsa entegre edilir.
@@ -115,7 +116,8 @@ Bu turdaki yeni cache/test commitleri için yeni CI sonucu henüz doğrulanmış
 - başarısız CI'ı başarılı göstermek
 - build edilmemiş APK'yı hazır göstermek
 - CI'ın kaynak kodu sessizce değiştirmesine kalıcı olarak izin vermek
+- GPS başına provider HTTP çağrısı
 
 ## Sonraki Devam hedefi
 
-**Yeni cache/test HEAD için CI sonucunu doğrula. Yeşil ise TomTom/provider-chain refresh kontrolünü navigation akışına bağlamak için mevcut navigation kodunu incele; GPS başına HTTP çağrısı yapılmayacak şekilde cooldown + stale generation + bounded background execution ile küçük bir entegrasyon yap. Gerçek credential yoksa inert/fallback davranışını koru.**
+**Yeni coordinator HEAD için CI sonucunu doğrula. Yeşil ise `MainActivity` navigation callback'ine coordinator bağla: GPS olayları yalnız cooldown/in-flight kontrolü yapacak, ranking background executor'da çalışacak, routeGeneration/reset stale sonucu UI'a yazılmasını engelleyecek. Sonra CI ve APK'yı gerçek GitHub sonucu ile doğrula.**
