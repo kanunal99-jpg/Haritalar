@@ -1,4 +1,4 @@
-name: Apply map POI and route traffic visibility fix
+name: Apply live map layer repair
 
 on:
   push:
@@ -9,31 +9,48 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ !contains(github.event.head_commit.message, 'fix(map): keep live traffic visible with route') }}
+    if: ${{ !contains(github.event.head_commit.message, 'fix(map): broaden live map layers') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch route traffic visibility and activity log
+      - name: Patch POI coverage, route traffic sampling and activity log
         shell: bash
         run: |
           python3 <<'PY'
           from pathlib import Path
-          p = Path('app/src/main/java/com/haritalar/app/MainActivity.kt')
+          import re
+
+          # 1) Give route traffic enough real TomTom samples for long routes.
+          p = Path('core/src/main/kotlin/com/haritalar/core/traffic/TomTomTrafficProvider.kt')
           s = p.read_text()
-          old = 'LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(6f), lineColor("#1976D2"))'
-          new = 'LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(3.5f), lineColor("#1976D2"), lineOpacity(0.60f))'
-          if old in s:
-              s = s.replace(old, new, 1)
-          if 'import org.maplibre.android.style.layers.PropertyFactory.lineOpacity' not in s:
-              s = s.replace('import org.maplibre.android.style.layers.PropertyFactory.lineWidth\n', 'import org.maplibre.android.style.layers.PropertyFactory.lineWidth\nimport org.maplibre.android.style.layers.PropertyFactory.lineOpacity\n', 1)
+          s = s.replace('const val DEFAULT_MAX_SAMPLES = 8', 'const val DEFAULT_MAX_SAMPLES = 20', 1)
           p.write_text(s)
 
+          # 2) Fetch safety-critical POI categories separately so the global 1000-item
+          # cap cannot crowd traffic lights/cameras/crossings/schools/forests out.
+          p = Path('app/src/main/java/com/haritalar/app/LiveNavigationPoiLayer.kt')
+          s = p.read_text()
+          old = '''                val query = OsmPoiQuery.build(south, west, north, east, MAX_RESULTS)\n                val connection = (URL(OsmPoiQuery.endpoint()).openConnection() as HttpURLConnection).apply {\n                    requestMethod = "POST"; connectTimeout = 8_000; readTimeout = 15_000; doOutput = true\n                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")\n                    setRequestProperty("User-Agent", "Haritalar/1.0 (open-source navigation app)")\n                }\n                connection.outputStream.use { it.write(("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8)) }\n                val code = connection.responseCode\n                if (code !in 200..299) error("Overpass HTTP $code")\n                val body = connection.inputStream.bufferedReader().use { it.readText() }\n                val pois = OsmPoiParser.parse(body, MAX_RESULTS)\n                mainHandler.post { updateSource(pois) }'''
+          new = '''                val categories = listOf(\n                    NavigationPoiCategory.TRAFFIC_SIGNAL,\n                    NavigationPoiCategory.SPEED_CAMERA,\n                    NavigationPoiCategory.PEDESTRIAN_CROSSING,\n                    NavigationPoiCategory.SCHOOL,\n                    NavigationPoiCategory.FOREST,\n                )\n                val criticalPois = categories.flatMap { category ->\n                    fetchPoiQuery(OsmPoiQuery.buildForCategory(south, west, north, east, category, 250), 250)\n                }\n                val generalPois = fetchPoiQuery(OsmPoiQuery.build(south, west, north, east, MAX_RESULTS), MAX_RESULTS)\n                val pois = (criticalPois + generalPois)\n                    .distinctBy { it.id }\n                    .let { OsmPoiParser.parse(\n                        "{\\\"elements\\\":[]}", 1\n                    ).let { _ -> it } }\n                mainHandler.post { updateSource(pois) }'''
+          if old not in s:
+              raise SystemExit('Expected LiveNavigationPoiLayer refresh block not found')
+          s = s.replace(old, new, 1)
+
+          anchor = '''    private fun updateSource(pois: List<NavigationPoi>) {'''
+          helper = '''    private fun fetchPoiQuery(query: String, limit: Int): List<NavigationPoi> {\n        val connection = (URL(OsmPoiQuery.endpoint()).openConnection() as HttpURLConnection).apply {\n            requestMethod = "POST"; connectTimeout = 8_000; readTimeout = 15_000; doOutput = true\n            setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")\n            setRequestProperty("User-Agent", "Haritalar/1.0 (open-source navigation app)")\n        }\n        return try {\n            connection.outputStream.use { it.write(("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8)) }\n            val code = connection.responseCode\n            if (code !in 200..299) error("Overpass HTTP $code")\n            val body = connection.inputStream.bufferedReader().use { it.readText() }\n            OsmPoiParser.parse(body, limit)\n        } finally {\n            connection.disconnect()\n        }\n    }\n\n'''
+          s = s.replace(anchor, helper + anchor, 1)
+          # Remove the intentionally unnecessary parser expression introduced only as a
+          # type-safe no-op guard; the merged list is already NavigationPoi values.
+          s = s.replace('''                val pois = (criticalPois + generalPois)\n                    .distinctBy { it.id }\n                    .let { OsmPoiParser.parse(\n                        "{\\\"elements\\\":[]}", 1\n                    ).let { _ -> it } }''', '''                val pois = (criticalPois + generalPois).distinctBy { it.id }''', 1)
+          p.write_text(s)
+
+          # 3) Keep the record append-only and explicit.
           log = Path('docs/PROJECT_ACTIVITY_LOG.md')
           text = log.read_text()
-          entry = '''\n## İşlem #LIVE-MAP-LAYERS-001 — Trafik + güvenlik/harita katmanları kapsam düzeltmesi\n\n- **Tarih:** 2026-09-10\n- **Tür:** Ürün kapsamı / canlı harita katmanları\n- **Amaç:** Kullanıcı canlı doğrulamasında trafik kapsamının kısmi olduğunu ve rota üzerinde trafik renginin görünmediğini bildirdi. Ayrıca trafik ışıkları, radar/hız kamerası, yaya geçitleri, ormanlık alanlar ve okul katmanlarının haritada görünmediği raporlandı.\n- **Kontrol:** `MainActivity.kt`, `LiveNavigationPoiLayer.kt`, `OsmPoiQuery.kt`, `OsmPoiParser.kt`, `NavigationPoiModel.kt` gerçek `main` HEAD üzerinden incelendi.\n- **Gerçek bulgular:** Trafik için TomTom global raster tile + görünür alan Flow Segment örneklemesi mevcut; bu kapsam rota bağımsızdır ancak point sampling nedeniyle kısmi olabilir. POI parser daha önce isimsiz güvenlik noktalarını atıyordu; bu nedenle trafik ışığı/radar/yaya geçidi gibi isim etiketi olmayan OSM öğeleri görünmüyordu. Orman ve yaya geçidi kategorileri model/query katmanında eksikti.\n- **Yapılan:** `NavigationPoiCategory` içine `FOREST` ve `PEDESTRIAN_CROSSING` eklendi; Overpass sorgusu traffic signal, speed camera, crossing, forest/wood/nature reserve kapsayacak şekilde genişletildi; isimsiz güvenlik öğeleri kategoriye göre güvenli yerel ad ile korunur; harita POI görsel stili bu kategorileri belirginleştirir; rota taban çizgisi inceltilip saydamlaştırılarak canlı trafik katmanının rota üzerinde görünürlüğü artırıldı.\n- **Gerçeklik/maliyet:** Sahte trafik veya sahte POI üretilmedi. OSM canlı trafik kaynağı olarak kullanılmadı. TomTom trafik katmanı gerçek provider verisidir.\n- **CI/APK:** Bu commit sonrası Android CI ve APK sonucu BEKLİYOR.\n- **Canlı kullanıcı doğrulaması:** BEKLİYOR. Kullanıcının `v0.0.459` gözlemi bu kayda girdi olarak alınmıştır; henüz düzeltme sonrası doğrulama değildir.\n- **Sonraki adım:** Android CI sonucu doğrulanacak, yeni APK release/artifact kontrol edilecek; ardından kullanıcı canlıda rota içi trafik + rota dışı trafik + güvenlik/POI katmanlarını kontrol edecek.\n'''
-          if 'İşlem #LIVE-MAP-LAYERS-001' not in text:
+          entry = '''\n## İşlem #LIVE-MAP-LAYERS-002 — Global POI kapsamı ve rota trafik yoğunluğu\n\n- **Tarih:** 2026-09-10\n- **Amaç:** `v0.0.459` canlı doğrulamasında rota dışı trafiğin kısmen görünmesi; rota boyunca trafik, trafik ışığı, radar/hız kamerası, yaya geçidi, okul ve orman katmanlarının görünmemesi raporlandı.\n- **Kaynak düzeltmesi:** TomTom rota örnekleme üst sınırı 8'den 20 gerçek koordinata çıkarıldı; global trafik için TomTom raster flow katmanı rota bağımsız korunuyor.\n- **POI düzeltmesi:** Trafik ışığı, hız kamerası, yaya geçidi, okul ve orman kategorileri ayrı Overpass sorguları ile önceliklendirildi; genel 1000 kayıt limiti bu kritik kategorileri artık dışarı itemeyecek. Sonuçlar ID ile birleştirilip tek harita kaynağında gösterilecek.\n- **Maliyet kontrolü:** Sorgular yalnızca görünür viewport değişimlerinde çalışır; mevcut debounce/throttle korunur. Sahte veri üretilmez.\n- **CI/APK:** BEKLİYOR.\n'''
+          if 'İşlem #LIVE-MAP-LAYERS-002' not in text:
               log.write_text(text.rstrip() + '\n' + entry)
           PY
       - name: Commit and push
@@ -41,6 +58,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           rm -f .github/workflows/apply-map-poi-traffic-fix.yml
-          git add app/src/main/java/com/haritalar/app/MainActivity.kt docs/PROJECT_ACTIVITY_LOG.md .github/workflows/apply-map-poi-traffic-fix.yml
-          git commit -m "fix(map): keep live traffic visible with route"
+          git add core/src/main/kotlin/com/haritalar/core/traffic/TomTomTrafficProvider.kt app/src/main/java/com/haritalar/app/LiveNavigationPoiLayer.kt docs/PROJECT_ACTIVITY_LOG.md .github/workflows/apply-map-poi-traffic-fix.yml
+          git commit -m "fix(map): broaden live map layers"
           git push origin HEAD:main
