@@ -55,26 +55,58 @@ class TrafficRouteRankingService(
         nowEpochMs: Long,
     ): DetailedResult {
         if (routes.isEmpty()) return DetailedResult(emptyList(), emptyMap())
-        val allCoordinates = routes.flatMap { it.coordinates }.filter(::validCoordinate)
-        if (allCoordinates.isEmpty()) return DetailedResult(routes.map(::withoutTraffic), emptyMap())
 
-        val snapshot = runCatching {
-            providerChain.fetch(
-                coordinate = allCoordinates.first(),
-                bounds = boundsFor(allCoordinates),
-                route = TrafficRoute(allCoordinates),
-                nowEpochMs = nowEpochMs,
-            )
-        }.getOrNull()
-        if (snapshot == null || !snapshot.isUsable(nowEpochMs) || snapshot.confidence == TrafficConfidence.LOW) {
-            return DetailedResult(routes.map(::withoutTraffic), emptyMap())
-        }
+        /*
+         * A single snapshot built from all alternative geometries can undersample
+         * individual routes: TomTom Flow Segment Data is point-based. One request
+         * is therefore made for one representative point per route, bounded by the
+         * number of route alternatives. This keeps traffic attribution route-local
+         * and avoids applying one route's segment to another route.
+         */
+        val observations = routes.mapNotNull { route ->
+            val point = representativePoint(route.coordinates) ?: return@mapNotNull null
+            val snapshot = runCatching {
+                providerChain.fetch(
+                    coordinate = point,
+                    bounds = boundsFor(route.coordinates),
+                    route = TrafficRoute(listOf(point)),
+                    nowEpochMs = nowEpochMs,
+                )
+            }.getOrNull()
+            route.routeId to snapshot
+        }.toMap()
 
         val matchedByRoute = routes.associate { route ->
-            route.routeId to TrafficRouteMatcher.match(route = route.coordinates, segments = snapshot.segments)
+            val snapshot = observations[route.routeId]
+            route.routeId to if (snapshot != null && snapshot.isUsable(nowEpochMs) && snapshot.confidence != TrafficConfidence.LOW) {
+                TrafficRouteAdapter.matchSnapshotToRoute(
+                    route = route.coordinates,
+                    snapshot = snapshot,
+                    nowEpochMs = nowEpochMs,
+                )
+            } else {
+                emptyList()
+            }
         }
-        val ranked = TrafficRouteRanking.rank(routes = routes, snapshot = snapshot, nowEpochMs = nowEpochMs)
-        return DetailedResult(ranked, matchedByRoute)
+
+        val ranked = routes.map { route ->
+            val snapshot = observations[route.routeId]
+            if (snapshot == null || !snapshot.isUsable(nowEpochMs) || snapshot.confidence == TrafficConfidence.LOW) {
+                withoutTraffic(route)
+            } else {
+                TrafficRouteRanking.rank(
+                    routes = listOf(route),
+                    snapshot = snapshot,
+                    nowEpochMs = nowEpochMs,
+                ).single()
+            }
+        }.sortedWith(
+            compareBy<TrafficRouteRanking.RankedCandidate> { it.adjustedDurationSeconds }
+                .thenBy { it.baseDurationSeconds }
+                .thenBy { it.routeId },
+        )
+
+        return DetailedResult(ranked = ranked, matchedSegmentsByRoute = matchedByRoute)
     }
 
     fun rankBlocking(
@@ -106,12 +138,22 @@ class TrafficRouteRankingService(
         trafficApplied = false,
     )
 
-    private fun boundsFor(coordinates: List<GeoCoordinate>): TrafficBounds = TrafficBounds(
-        south = coordinates.minOf { it.latitude },
-        west = coordinates.minOf { it.longitude },
-        north = coordinates.maxOf { it.latitude },
-        east = coordinates.maxOf { it.longitude },
-    )
+    private fun representativePoint(coordinates: List<GeoCoordinate>): GeoCoordinate? {
+        val valid = coordinates.filter(::validCoordinate)
+        if (valid.isEmpty()) return null
+        return valid[valid.lastIndex / 2]
+    }
+
+    private fun boundsFor(coordinates: List<GeoCoordinate>): TrafficBounds {
+        val valid = coordinates.filter(::validCoordinate)
+        require(valid.isNotEmpty()) { "No valid coordinates for traffic bounds" }
+        return TrafficBounds(
+            south = valid.minOf { it.latitude },
+            west = valid.minOf { it.longitude },
+            north = valid.maxOf { it.latitude },
+            east = valid.maxOf { it.longitude },
+        )
+    }
 
     private fun validCoordinate(coordinate: GeoCoordinate): Boolean =
         coordinate.latitude.isFinite() && coordinate.longitude.isFinite() &&
