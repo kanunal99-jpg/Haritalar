@@ -59,11 +59,19 @@ object MapLayerControlBridge {
 
     private fun waitForStyleAndAddControls(activity: Activity, root: ViewGroup, map: MapLibreMap, startedAt: Long) {
         if (root.findViewWithTag<View>(CONTROL_TAG) != null) return
-        if (!activity.isFinishing && !activity.isDestroyed && map.style != null) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        val style = map.style
+        // MapLibre exposes a non-null style before the app's own overlay installation callback
+        // necessarily completes. Wait for the stable POI layer set so the layer controls cannot
+        // become visible while their underlying MapLibre layers are still missing.
+        val overlaysReady = style != null &&
+            style.getLayer(POI_LAYER_ID) != null &&
+            style.getLayer(POI_LABEL_LAYER_ID) != null &&
+            style.getLayer(POI_SELECTED_LAYER_ID) != null
+        if (overlaysReady) {
             addControls(activity, root, map)
             return
         }
-        if (activity.isFinishing || activity.isDestroyed) return
         if (System.currentTimeMillis() - startedAt >= STYLE_WAIT_TIMEOUT_MS) return
         mainHandler.postDelayed({ waitForStyleAndAddControls(activity, root, map, startedAt) }, STYLE_WAIT_INTERVAL_MS)
     }
@@ -144,9 +152,6 @@ object MapLayerControlBridge {
                 false -> "$title: Kapalı"
                 null -> "$title: Kullanılamıyor"
             }
-            // Keep the control actionable: traffic layers may be installed after the panel is opened.
-            // The click path resolves the current MapLibre style again, so a temporarily missing
-            // layer must not permanently disable the button.
             isEnabled = true
         }
 
@@ -172,11 +177,6 @@ object MapLayerControlBridge {
         TRAFFIC_SEVERITY_LAYER_IDS.forEach { add(TRAFFIC_LAYER_PREFIX + it) }
     }.filter { map.style?.getLayer(it) != null }
 
-    /**
-     * Treat a mixed group as actionable rather than a dead-end state. Any visible layer means
-     * the group is currently considered open; the next click normalizes every existing layer to
-     * hidden. The following click can then turn the whole group back on consistently.
-     */
     private fun groupVisibility(map: MapLibreMap, ids: List<String>): Boolean? {
         val style = map.style ?: return null
         if (ids.isEmpty()) return null
