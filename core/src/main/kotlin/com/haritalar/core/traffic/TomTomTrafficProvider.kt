@@ -32,7 +32,7 @@ class TomTomTrafficProvider(
     companion object {
         const val ID = "tomtom-flow"
         const val PRIORITY = 100
-        const val DEFAULT_MAX_SAMPLES = 8
+        const val DEFAULT_MAX_SAMPLES = 20
         private const val DEFAULT_TTL_MS = 60_000L
         const val DEFAULT_CACHE_TTL_MS = 30_000L
         private const val FLOW_ENDPOINT = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json"
