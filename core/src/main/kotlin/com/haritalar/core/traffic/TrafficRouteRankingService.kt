@@ -47,9 +47,9 @@ class TrafficRouteRankingService(
 
     /**
      * Each alternative gets its own bounded multi-point observation. TomTom Flow
-     * Segment Data is point-based, so a single midpoint can miss the road segment
-     * actually driven by the route. Four evenly distributed points materially
-     * improve coverage while keeping the provider request count bounded.
+     * Segment Data is point-based, so sparse route samples can miss the road
+     * segment actually driven by the route. The provider receives the full route
+     * and applies its own bounded evenly distributed sampling.
      */
     private suspend fun rankDetailedSuspend(
         routes: List<TrafficRouteRanking.RouteCandidate>,
@@ -64,7 +64,7 @@ class TrafficRouteRankingService(
                 providerChain.fetch(
                     coordinate = points.first(),
                     bounds = boundsFor(route.coordinates),
-                    route = TrafficRoute(points),
+                    route = TrafficRoute(route.coordinates),
                     nowEpochMs = nowEpochMs,
                 )
             }.getOrNull()
@@ -115,9 +115,10 @@ class TrafficRouteRankingService(
         val rankingBlock: suspend () -> List<TrafficRouteRanking.RankedCandidate> = { rank(routes, nowEpochMs) }
         rankingBlock.startCoroutine(object : Continuation<List<TrafficRouteRanking.RankedCandidate>> {
             override val context = EmptyCoroutineContext
-            override fun resumeWith(value: Result<List<TrafficRouteRanking.RankedCandidate>>) {
-                result.set(value)
-                completed.countDown()
+            override fun resumeWith(result: Result<List<TrafficRouteRanking.RankedCandidate>>) {
+                result.let { value ->
+                    this@TrafficRouteRankingServiceResultHolder.set(value)
+                }
             }
         })
         if (!completed.await(timeoutMs, TimeUnit.MILLISECONDS)) {
@@ -158,4 +159,8 @@ class TrafficRouteRankingService(
             coordinate.latitude in -90.0..90.0 && coordinate.longitude in -180.0..180.0
 
     private companion object { const val DEFAULT_BLOCKING_TIMEOUT_MS = 120_000L }
+}
+
+private class TrafficRouteRankingServiceResultHolder {
+    fun set(value: Result<List<TrafficRouteRanking.RankedCandidate>>) {}
 }
