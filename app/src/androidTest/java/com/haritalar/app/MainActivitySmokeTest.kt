@@ -5,6 +5,7 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -70,6 +71,74 @@ class MainActivitySmokeTest {
             }
         } catch (error: Throwable) {
             throw AssertionError("Map layer controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
+        } finally {
+            scenario.close()
+        }
+    }
+
+    @Test
+    fun mapLayerButtonsChangeRealMapLibreVisibility() {
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            val deadline = SystemClock.uptimeMillis() + 12_000L
+            var verified = false
+            while (SystemClock.uptimeMillis() < deadline && !verified) {
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                scenario.onActivity { activity ->
+                    val content = activity.findViewById<ViewGroup>(android.R.id.content)
+                    val layers = findTextView(content, "Katmanlar")
+                    if (layers != null) {
+                        layers.performClick()
+                        val traffic = findButtonStartingWith(content, "Trafik:")
+                        val poi = findButtonStartingWith(content, "Güvenlik / POI:")
+                        if (traffic != null && poi != null && traffic.isEnabled && poi.isEnabled) {
+                            val mapView = findMapView(content)
+                                ?: error("MapLibre MapView disappeared while layer panel was open")
+                            val map = mapView.getMapAsyncForTestMap() ?: return@onActivity
+                            val style = map.style ?: return@onActivity
+                            val trafficLayer = style.getLayer("haritalar-tomtom-traffic-layer")
+                                ?: error("TomTom traffic layer is missing from the active MapLibre style")
+                            val poiLayerIds = listOf(
+                                "haritalar-live-poi-circles",
+                                "haritalar-live-poi-labels",
+                                "haritalar-live-poi-selected",
+                            )
+                            val poiLayers = poiLayerIds.map { id ->
+                                style.getLayer(id)
+                                    ?: error("POI layer $id is missing from the active MapLibre style")
+                            }
+
+                            val trafficBefore = trafficLayer.getVisibility().value
+                            val poiBefore = poiLayers.map { it.getVisibility().value }
+                            traffic.performClick()
+                            poi.performClick()
+                            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+                            val trafficAfter = trafficLayer.getVisibility().value
+                            val poiAfter = poiLayers.map { it.getVisibility().value }
+                            check(trafficAfter != trafficBefore) {
+                                "Traffic button did not change the real MapLibre traffic-layer visibility"
+                            }
+                            check(poiAfter.all { it != poiBefore.first() } || poiAfter != poiBefore) {
+                                "POI button did not change the real MapLibre POI-layer visibility"
+                            }
+                            check(traffic.text.toString() == "Trafik: ${if (trafficAfter == "none") "Kapalı" else "Açık"}") {
+                                "Traffic button label is not synchronized with MapLibre state: ${traffic.text}"
+                            }
+                            check(poi.text.toString() == "Güvenlik / POI: ${if (poiAfter.all { it != "none" }) "Açık" else "Kapalı"}") {
+                                "POI button label is not synchronized with MapLibre state: ${poi.text}"
+                            }
+                            verified = true
+                        }
+                    }
+                }
+                if (!verified) SystemClock.sleep(300L)
+            }
+            check(verified) {
+                "Layer buttons could not be verified against the active MapLibre style within timeout"
+            }
+        } catch (error: Throwable) {
+            throw AssertionError("Layer buttons did not pass real MapLibre visibility verification. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
             scenario.close()
         }
@@ -209,6 +278,15 @@ class MainActivitySmokeTest {
         return null
     }
 
+    private fun findButtonStartingWith(root: View, prefix: String): Button? {
+        if (root is Button && root.text?.toString()?.startsWith(prefix) == true) return root
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findButtonStartingWith(root.getChildAt(index), prefix)?.let { return it }
+        }
+        return null
+    }
+
     private fun findMapView(root: View): MapView? {
         if (root is MapView) return root
         if (root !is ViewGroup) return null
@@ -217,6 +295,10 @@ class MainActivitySmokeTest {
         }
         return null
     }
+
+    private fun MapView.getAsyncMapReference(): org.maplibre.android.maps.MapLibreMap? = null
+
+    private fun MapView.getMapAsyncForTestMap(): org.maplibre.android.maps.MapLibreMap? = null
 
     private fun liveDiagnostics(): String {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
