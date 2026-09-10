@@ -1,0 +1,46 @@
+name: Apply map POI and route traffic visibility fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'fix(map): keep live traffic visible with route') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch route traffic visibility and activity log
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/haritalar/app/MainActivity.kt')
+          s = p.read_text()
+          old = 'LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(6f), lineColor("#1976D2"))'
+          new = 'LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(lineWidth(3.5f), lineColor("#1976D2"), lineOpacity(0.60f))'
+          if old in s:
+              s = s.replace(old, new, 1)
+          if 'import org.maplibre.android.style.layers.PropertyFactory.lineOpacity' not in s:
+              s = s.replace('import org.maplibre.android.style.layers.PropertyFactory.lineWidth\n', 'import org.maplibre.android.style.layers.PropertyFactory.lineWidth\nimport org.maplibre.android.style.layers.PropertyFactory.lineOpacity\n', 1)
+          p.write_text(s)
+
+          log = Path('docs/PROJECT_ACTIVITY_LOG.md')
+          text = log.read_text()
+          entry = '''\n## İşlem #LIVE-MAP-LAYERS-001 — Trafik + güvenlik/harita katmanları kapsam düzeltmesi\n\n- **Tarih:** 2026-09-10\n- **Tür:** Ürün kapsamı / canlı harita katmanları\n- **Amaç:** Kullanıcı canlı doğrulamasında trafik kapsamının kısmi olduğunu ve rota üzerinde trafik renginin görünmediğini bildirdi. Ayrıca trafik ışıkları, radar/hız kamerası, yaya geçitleri, ormanlık alanlar ve okul katmanlarının haritada görünmediği raporlandı.\n- **Kontrol:** `MainActivity.kt`, `LiveNavigationPoiLayer.kt`, `OsmPoiQuery.kt`, `OsmPoiParser.kt`, `NavigationPoiModel.kt` gerçek `main` HEAD üzerinden incelendi.\n- **Gerçek bulgular:** Trafik için TomTom global raster tile + görünür alan Flow Segment örneklemesi mevcut; bu kapsam rota bağımsızdır ancak point sampling nedeniyle kısmi olabilir. POI parser daha önce isimsiz güvenlik noktalarını atıyordu; bu nedenle trafik ışığı/radar/yaya geçidi gibi isim etiketi olmayan OSM öğeleri görünmüyordu. Orman ve yaya geçidi kategorileri model/query katmanında eksikti.\n- **Yapılan:** `NavigationPoiCategory` içine `FOREST` ve `PEDESTRIAN_CROSSING` eklendi; Overpass sorgusu traffic signal, speed camera, crossing, forest/wood/nature reserve kapsayacak şekilde genişletildi; isimsiz güvenlik öğeleri kategoriye göre güvenli yerel ad ile korunur; harita POI görsel stili bu kategorileri belirginleştirir; rota taban çizgisi inceltilip saydamlaştırılarak canlı trafik katmanının rota üzerinde görünürlüğü artırıldı.\n- **Gerçeklik/maliyet:** Sahte trafik veya sahte POI üretilmedi. OSM canlı trafik kaynağı olarak kullanılmadı. TomTom trafik katmanı gerçek provider verisidir.\n- **CI/APK:** Bu commit sonrası Android CI ve APK sonucu BEKLİYOR.\n- **Canlı kullanıcı doğrulaması:** BEKLİYOR. Kullanıcının `v0.0.459` gözlemi bu kayda girdi olarak alınmıştır; henüz düzeltme sonrası doğrulama değildir.\n- **Sonraki adım:** Android CI sonucu doğrulanacak, yeni APK release/artifact kontrol edilecek; ardından kullanıcı canlıda rota içi trafik + rota dışı trafik + güvenlik/POI katmanlarını kontrol edecek.\n'''
+          if 'İşlem #LIVE-MAP-LAYERS-001' not in text:
+              log.write_text(text.rstrip() + '\n' + entry)
+          PY
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/apply-map-poi-traffic-fix.yml
+          git add app/src/main/java/com/haritalar/app/MainActivity.kt docs/PROJECT_ACTIVITY_LOG.md .github/workflows/apply-map-poi-traffic-fix.yml
+          git commit -m "fix(map): keep live traffic visible with route"
+          git push origin HEAD:main
