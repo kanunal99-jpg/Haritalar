@@ -23,12 +23,7 @@ object TrafficEngineFactory {
 
     fun fetchMapTrafficAtPointBlocking(point: GeoCoordinate, timeoutMs: Long = 15_000L): List<TrafficSegment> {
         if (!tomTomProvider.supports(point)) return emptyList()
-        val bounds = TrafficBounds(
-            south = point.latitude,
-            west = point.longitude,
-            north = point.latitude,
-            east = point.longitude,
-        )
+        val bounds = TrafficBounds(point.latitude, point.longitude, point.latitude, point.longitude)
         val completed = CountDownLatch(1)
         val result = AtomicReference<Result<List<TrafficSegment>>?>()
         val block: suspend () -> List<TrafficSegment> = {

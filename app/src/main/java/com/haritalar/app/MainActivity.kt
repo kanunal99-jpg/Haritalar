@@ -30,6 +30,7 @@ import com.haritalar.core.traffic.TrafficRefreshCoordinator
 import com.haritalar.core.traffic.TrafficRouteMapPresentation
 import com.haritalar.core.traffic.TrafficRouteRanking
 import com.haritalar.core.traffic.TrafficRouteSegment
+import com.haritalar.core.traffic.TrafficSegment
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
@@ -69,8 +70,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"
         private const val GLOBAL_TRAFFIC_SOURCE_PREFIX = "haritalar-global-traffic-source-"
         private const val GLOBAL_TRAFFIC_LAYER_PREFIX = "haritalar-global-traffic-layer-"
-        private const val TRAFFIC_ROUTE_SOURCE_PREFIX = "haritalar-traffic-route-source-"
-        private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"
         private const val OFF_ROUTE_METERS = 60.0
         private const val REROUTE_COOLDOWN_MS = 15_000L
         private const val START_TTS = "Lanu iyi yolculuklar diler. Emniyet kemerinizi, aynalarınızı ve lastiklerinizi kontrol ediniz. Güvenli yolculuklar."
@@ -105,7 +104,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()
     private var mapTrafficRefreshInFlight = false
     private var lastMapTrafficRefreshAt = 0L
-    private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()
     private var ttsReady = false
     private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
     private var routeGeneration = 0
@@ -376,7 +374,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
         lastTrafficSegmentsByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
         navigationEngine.reset()
         routePanel.visibility = View.VISIBLE
@@ -474,8 +471,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 trafficRefreshCoordinator.reset()
                 trafficRouteOptions = emptyList()
                 lastTrafficByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
                 locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
                 navigationButton.visibility = View.GONE
                 speak("Hedefinize ulaştınız.", true)
@@ -494,8 +489,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         routeGeneration += 1
         trafficRefreshCoordinator.reset()
         lastTrafficByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
         requestSingleRoute(location.latitude, location.longitude, target.latitude, target.longitude, "Yeniden rota", "auto") { option ->
             rerouteInFlight = false
             applyRoute(option, true)
@@ -507,8 +500,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRefreshCoordinator.reset()
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
         val specs = listOf(
             Triple("En hızlı", "Hızlı rota • ücretli/feribot geçişleri kullanılabilir", "auto"),
             Triple("En kısa", "Mesafeyi azaltır", "auto_shorter"),
@@ -740,8 +731,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             trafficRefreshCoordinator.reset()
             trafficRouteOptions = listOf(option)
             lastTrafficByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
         }
         routePoints = option.points
         routeCumulativeMeters = option.cumulativeMeters
@@ -774,8 +763,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 trafficRefreshCoordinator.reset()
                 trafficRouteOptions = emptyList()
                 lastTrafficByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
                 locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
                 routePanel.visibility = View.VISIBLE
                 status.text = "Rota seçeneklerinden birini seçin"
@@ -819,8 +806,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRefreshCoordinator.reset()
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
-        lastTrafficSegmentsByRoute = emptyMap()
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
         navigationButton.visibility = View.GONE
         mapView.getMapAsync { map ->

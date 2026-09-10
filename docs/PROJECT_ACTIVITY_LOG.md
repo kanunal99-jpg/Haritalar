@@ -489,3 +489,11 @@ Her işlem mümkün olduğunca şu alanları içerir:
 - **Sonuç:** Smoke testin bilinen runtime permission önkoşulu gerçek test harness'inde karşılandı; production navigation kodu değiştirilmedi.
 - **Öğrenim:** Android instrumentation testleri, Activity'nin gerçek runtime permission lifecycle'ını açıkça hazırlamalı; yalnız UI assertionlarını değiştirmek yeterli değildir.
 - **Sonraki adım:** Yeni GitHub Actions run'ını doğrula. Failure devam ederse diagnostics artifact/log üzerinden kalan gerçek nedeni izole et; success olursa APK artifact'i doğrula.
+
+## İşlem #LIVE-TRAFFIC-MAP-3 — Rota bağımsız trafik kod temizliği ve doğrulama hazırlığı
+
+- **Tarih:** 2026-09-10
+- **Tür:** Bug fix / patch cleanup
+- **Amaç:** Önceki tek-seferlik patch denemelerinin oluşturduğu yinelenen Kotlin bildirimlerini temizlemek ve rota bağımsız canlı trafik katmanını derlenebilir hale getirmek.
+- **Yapılan:** MainActivity duplicate constant/field bildirimleri normalize edildi; TrafficSegment importu güvenceye alındı; canonical TomTom provider için bounded blocking bridge TrafficEngineFactory içinde tutuldu.
+- **Canlı kullanıcı doğrulaması:** BEKLİYOR.
