@@ -9,7 +9,6 @@ import com.haritalar.core.navigation.NavigationPoiCategory
 import com.haritalar.core.navigation.NavigationPoiDetails
 import com.haritalar.core.navigation.OsmPoiParser
 import com.haritalar.core.navigation.OsmPoiQuery
-import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.geometry.LatLngBounds
@@ -41,7 +40,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.Executors
 
-/** Bounded, throttled live OSM POI overlay plus the real TomTom traffic tile layer. */
+/** Bounded, throttled live OSM POI overlay plus real TomTom traffic tiles. */
 class LiveNavigationPoiLayer(
     private val onPoiSelected: (NavigationPoiDetails) -> Unit = {},
 ) {
@@ -57,7 +56,7 @@ class LiveNavigationPoiLayer(
             "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png"
         private const val DEBOUNCE_MS = 900L
         private const val MIN_REFRESH_MS = 5_000L
-        private const val MAX_RESULTS = 300
+        private const val MAX_RESULTS = 1000
         private const val TAG = "LiveNavigationPoi"
     }
 
@@ -81,20 +80,19 @@ class LiveNavigationPoiLayer(
     fun install(map: MapLibreMap, style: Style) {
         this.map = map
         installTrafficLayer(style)
-        if (style.getSource(SOURCE_ID) == null) {
-            style.addSource(GeoJsonSource(SOURCE_ID, FeatureCollection.fromFeatures(emptyArray())))
-        }
-        if (style.getSource(SELECTED_SOURCE_ID) == null) {
-            style.addSource(GeoJsonSource(SELECTED_SOURCE_ID, FeatureCollection.fromFeatures(emptyArray())))
-        }
+        if (style.getSource(SOURCE_ID) == null) style.addSource(GeoJsonSource(SOURCE_ID, FeatureCollection.fromFeatures(emptyArray())))
+        if (style.getSource(SELECTED_SOURCE_ID) == null) style.addSource(GeoJsonSource(SELECTED_SOURCE_ID, FeatureCollection.fromFeatures(emptyArray())))
         if (style.getLayer(CIRCLE_LAYER_ID) == null) {
             style.addLayer(
                 CircleLayer(CIRCLE_LAYER_ID, SOURCE_ID).withProperties(
                     circleRadius(
                         Expression.match(
                             Expression.get("category"),
-                            Expression.literal("TRAFFIC_SIGNAL"), Expression.literal(8f),
-                            Expression.literal("SPEED_CAMERA"), Expression.literal(9f),
+                            Expression.literal("TRAFFIC_SIGNAL"), Expression.literal(9f),
+                            Expression.literal("SPEED_CAMERA"), Expression.literal(10f),
+                            Expression.literal("PEDESTRIAN_CROSSING"), Expression.literal(8f),
+                            Expression.literal("SCHOOL"), Expression.literal(9f),
+                            Expression.literal("FOREST"), Expression.literal(8f),
                             Expression.literal("FUEL"), Expression.literal(8f),
                             Expression.literal("PLACE_OF_WORSHIP"), Expression.literal(8f),
                             Expression.literal("RAILWAY"), Expression.literal(8f),
@@ -108,6 +106,9 @@ class LiveNavigationPoiLayer(
                             Expression.get("category"),
                             Expression.literal("TRAFFIC_SIGNAL"), Expression.literal("#D32F2F"),
                             Expression.literal("SPEED_CAMERA"), Expression.literal("#7B1FA2"),
+                            Expression.literal("PEDESTRIAN_CROSSING"), Expression.literal("#FBC02D"),
+                            Expression.literal("SCHOOL"), Expression.literal("#1565C0"),
+                            Expression.literal("FOREST"), Expression.literal("#2E7D32"),
                             Expression.literal("FUEL"), Expression.literal("#F57C00"),
                             Expression.literal("PLACE_OF_WORSHIP"), Expression.literal("#1565C0"),
                             Expression.literal("RAILWAY"), Expression.literal("#424242"),
@@ -122,18 +123,15 @@ class LiveNavigationPoiLayer(
             )
         }
         if (style.getLayer(SELECTED_LAYER_ID) == null) {
-            style.addLayer(
-                CircleLayer(SELECTED_LAYER_ID, SELECTED_SOURCE_ID).withProperties(
-                    circleRadius(13f), circleColor("#FF9800"), circleOpacity(0.28f),
-                    circleStrokeColor("#FF9800"), circleStrokeWidth(3f),
-                ),
-            )
+            style.addLayer(CircleLayer(SELECTED_LAYER_ID, SELECTED_SOURCE_ID).withProperties(
+                circleRadius(13f), circleColor("#FF9800"), circleOpacity(0.28f),
+                circleStrokeColor("#FF9800"), circleStrokeWidth(3f),
+            ))
         }
         if (style.getLayer(LABEL_LAYER_ID) == null) {
             SymbolLayer(LABEL_LAYER_ID, SOURCE_ID).withProperties(
-                textField(Expression.get("name")),
-                textSize(11f), textAllowOverlap(false), textIgnorePlacement(false),
-                iconAllowOverlap(false),
+                textField(Expression.get("name")), textSize(11f),
+                textAllowOverlap(false), textIgnorePlacement(false), iconAllowOverlap(false),
             ).also(style::addLayer)
         }
         map.removeOnMapClickListener(mapClickListener)
@@ -147,20 +145,10 @@ class LiveNavigationPoiLayer(
         }
         if (style.getSource(TRAFFIC_SOURCE_ID) == null) {
             val template = "$TRAFFIC_TILE_TEMPLATE?key=${BuildConfig.TOMTOM_API_KEY}&thickness=6&tileSize=256"
-            style.addSource(
-                RasterSource(
-                    TRAFFIC_SOURCE_ID,
-                    TileSet("2.2.0", template),
-                    256,
-                ),
-            )
+            style.addSource(RasterSource(TRAFFIC_SOURCE_ID, TileSet("2.2.0", template), 256))
         }
         if (style.getLayer(TRAFFIC_LAYER_ID) == null) {
-            style.addLayer(
-                RasterLayer(TRAFFIC_LAYER_ID, TRAFFIC_SOURCE_ID).withProperties(
-                    rasterOpacity(0.72f),
-                ),
-            )
+            style.addLayer(RasterLayer(TRAFFIC_LAYER_ID, TRAFFIC_SOURCE_ID).withProperties(rasterOpacity(0.72f)))
         }
     }
 
@@ -173,44 +161,30 @@ class LiveNavigationPoiLayer(
             ?: NavigationPoiCategory.OTHER
         val address = properties.get("address")?.asString?.takeIf { it.isNotBlank() }
         val openingHours = properties.get("opening_hours")?.asString?.takeIf { it.isNotBlank() }
-        val id = properties.get("id")?.asString?.takeIf { it.isNotBlank() }
-            ?: "osm-${point.longitude()}-${point.latitude()}"
-        val details = NavigationPoiDetails(
-            NavigationPoi(
-                id = id,
-                category = category,
-                name = name,
-                latitude = point.latitude(),
-                longitude = point.longitude(),
-                address = address,
-                openingHours = openingHours,
-                imageUrl = properties.get("image_url")?.asString?.takeIf { it.isNotBlank() },
-                streetImageUrl = properties.get("street_image_url")?.asString?.takeIf { it.isNotBlank() },
-            ),
-        )
+        val id = properties.get("id")?.asString?.takeIf { it.isNotBlank() } ?: "osm-${point.longitude()}-${point.latitude()}"
+        val details = NavigationPoiDetails(NavigationPoi(
+            id = id, category = category, name = name,
+            latitude = point.latitude(), longitude = point.longitude(),
+            address = address, openingHours = openingHours,
+            imageUrl = properties.get("image_url")?.asString?.takeIf { it.isNotBlank() },
+            streetImageUrl = properties.get("street_image_url")?.asString?.takeIf { it.isNotBlank() },
+        ))
         val message = buildString {
             append(details.title).append(" • ").append(details.categoryLabel)
             details.addressLabel?.let { append(" • ").append(it) }
             details.openingHoursLabel?.let { append(" • ").append(it) }
         }
-        val style = map?.style
-        val selectedSource = style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource
-        selectedSource?.setGeoJson(FeatureCollection.fromFeatures(arrayOf(feature)))
-
-        val currentMap = map
-        if (currentMap != null) {
+        (map?.style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(arrayOf(feature)))
+        map?.let { currentMap ->
             selectedMarker?.remove()
             val snippet = buildString {
                 append(details.categoryLabel)
                 details.addressLabel?.let { append("\n$it") }
                 details.openingHoursLabel?.let { append("\nSaatler: $it") }
             }
-            selectedMarker = currentMap.addMarker(
-                MarkerOptions()
-                    .position(org.maplibre.android.geometry.LatLng(details.poi.latitude, details.poi.longitude))
-                    .title(details.title)
-                    .snippet(snippet),
-            )
+            selectedMarker = currentMap.addMarker(MarkerOptions()
+                .position(org.maplibre.android.geometry.LatLng(details.poi.latitude, details.poi.longitude))
+                .title(details.title).snippet(snippet))
             selectedMarker?.let(currentMap::selectMarker)
         }
         Log.i(TAG, "POI seçildi: $message")
@@ -219,26 +193,22 @@ class LiveNavigationPoiLayer(
 
     fun clearSelection() {
         mainHandler.post {
-            selectedMarker?.remove()
-            selectedMarker = null
-            val source = map?.style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource
-            source?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+            selectedMarker?.remove(); selectedMarker = null
+            (map?.style?.getSource(SELECTED_SOURCE_ID) as? GeoJsonSource)
+                ?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
         }
     }
 
     fun scheduleRefresh(bounds: LatLngBounds?) {
         if (bounds == null || bounds.isEmptySpan) return
-        val south = bounds.latitudeSouth
-        val north = bounds.latitudeNorth
-        val west = bounds.longitudeWest
-        val east = bounds.longitudeEast
+        val south = bounds.latitudeSouth; val north = bounds.latitudeNorth
+        val west = bounds.longitudeWest; val east = bounds.longitudeEast
         val key = "%.3f,%.3f,%.3f,%.3f".format(south, west, north, east)
         if (key == lastBoundsKey) return
         lastBoundsKey = key
         refreshRunnable?.let(mainHandler::removeCallbacks)
         val runnable = Runnable {
-            if (lastBoundsKey != key) return@Runnable
-            refresh(south, west, north, east)
+            if (lastBoundsKey == key) refresh(south, west, north, east)
         }
         refreshRunnable = runnable
         mainHandler.postDelayed(runnable, DEBOUNCE_MS)
@@ -257,16 +227,11 @@ class LiveNavigationPoiLayer(
             try {
                 val query = OsmPoiQuery.build(south, west, north, east, MAX_RESULTS)
                 val connection = (URL(OsmPoiQuery.endpoint()).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    connectTimeout = 8_000
-                    readTimeout = 15_000
-                    doOutput = true
+                    requestMethod = "POST"; connectTimeout = 8_000; readTimeout = 15_000; doOutput = true
                     setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
                     setRequestProperty("User-Agent", "Haritalar/1.0 (open-source navigation app)")
                 }
-                connection.outputStream.use {
-                    it.write(("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8))
-                }
+                connection.outputStream.use { it.write(("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8)) }
                 val code = connection.responseCode
                 if (code !in 200..299) error("Overpass HTTP $code")
                 val body = connection.inputStream.bufferedReader().use { it.readText() }
@@ -279,17 +244,12 @@ class LiveNavigationPoiLayer(
     }
 
     private fun updateSource(pois: List<NavigationPoi>) {
-        val style = map?.style ?: return
-        val source = style.getSource(SOURCE_ID) as? GeoJsonSource ?: return
+        val source = map?.style?.getSource(SOURCE_ID) as? GeoJsonSource ?: return
         val features = pois.map { poi ->
             val properties = JsonObject().apply {
-                addProperty("id", poi.id)
-                addProperty("name", poi.name)
-                addProperty("category", poi.category.name)
-                addProperty("address", poi.address ?: "")
-                addProperty("opening_hours", poi.openingHours ?: "")
-                addProperty("image_url", poi.imageUrl ?: "")
-                addProperty("street_image_url", poi.streetImageUrl ?: "")
+                addProperty("id", poi.id); addProperty("name", poi.name); addProperty("category", poi.category.name)
+                addProperty("address", poi.address ?: ""); addProperty("opening_hours", poi.openingHours ?: "")
+                addProperty("image_url", poi.imageUrl ?: ""); addProperty("street_image_url", poi.streetImageUrl ?: "")
             }
             Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude), properties)
         }
@@ -299,9 +259,7 @@ class LiveNavigationPoiLayer(
     fun destroy() {
         refreshRunnable?.let(mainHandler::removeCallbacks)
         map?.removeOnMapClickListener(mapClickListener)
-        selectedMarker?.remove()
-        selectedMarker = null
-        executor.shutdownNow()
-        map = null
+        selectedMarker?.remove(); selectedMarker = null
+        executor.shutdownNow(); map = null
     }
 }
