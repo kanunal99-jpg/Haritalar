@@ -17,7 +17,8 @@ import org.maplibre.android.style.layers.PropertyFactory.visibility
 
 /** Visible map controls whose state is always derived from the current MapLibre style/camera. */
 object MapLayerControlBridge {
-    private const val TRAFFIC_LAYER_ID = "haritalar-tomtom-traffic-layer"
+    private const val TRAFFIC_LAYER_PREFIX = "haritalar-global-traffic-layer-"
+    private val TRAFFIC_LAYER_IDS = listOf("free", "light", "moderate", "heavy", "severe")
     private const val POI_LAYER_ID = "haritalar-live-poi-circles"
     private const val POI_LABEL_LAYER_ID = "haritalar-live-poi-labels"
     private const val POI_SELECTED_LAYER_ID = "haritalar-live-poi-selected"
@@ -82,7 +83,7 @@ object MapLayerControlBridge {
             background = rounded(0xF8FFFFFF.toInt(), 20f * density)
             elevation = 10f * density
         }
-        val traffic = makeLayerToggle(activity, "Trafik", map, listOf(TRAFFIC_LAYER_ID))
+        val traffic = makeLayerToggle(activity, "Trafik", map, TRAFFIC_LAYER_IDS.map { TRAFFIC_LAYER_PREFIX + it })
         val poi = makeLayerToggle(
             activity,
             "Güvenlik / POI",
