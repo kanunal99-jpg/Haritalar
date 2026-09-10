@@ -26,6 +26,33 @@ jobs:
           fi
           echo "TOMTOM_API_KEY is configured (value intentionally not printed)."
 
+      - name: Verify live TomTom Traffic Flow API
+        shell: bash
+        run: |
+          set -euo pipefail
+          response_file="/tmp/tomtom-flow-response.json"
+          http_code=$(curl --silent --show-error --get \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --data-urlencode 'point=41.0082,28.9784' \
+            --data-urlencode 'unit=KMPH' \
+            --data-urlencode "key=$TOMTOM_API_KEY" \
+            'https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json')
+
+          if [ "$http_code" != "200" ]; then
+            echo "TomTom Traffic Flow API rejected the request (HTTP $http_code)."
+            exit 1
+          fi
+
+          if ! grep -q '"flowSegmentData"' "$response_file"; then
+            echo "TomTom Traffic Flow API returned HTTP 200 but an invalid/unexpected response body."
+            exit 1
+          fi
+
+          echo "TomTom Traffic Flow API live smoke test passed (HTTP 200 + flowSegmentData)."
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
