@@ -39,7 +39,7 @@ object MapLayerControlBridge {
     }
 
     private fun installWhenReady(activity: Activity) {
-        val root = activity.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0) ?: return
+        val root = activity.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0) as? ViewGroup ?: return
         val mapView = findView(root, MapView::class.java) ?: return
         if (root.findViewWithTag<View>(CONTROL_TAG) != null) return
         mapView.getMapAsync { map ->
@@ -120,7 +120,7 @@ object MapLayerControlBridge {
         }
 
     private fun isVisible(map: MapLibreMap, id: String): Boolean =
-        map.style?.getLayer(id)?.getVisibility() != Property.NONE
+        map.style?.getLayer(id)?.getVisibility()?.value != Property.NONE
 
     private fun setVisible(map: MapLibreMap, id: String, visible: Boolean) {
         map.style?.getLayer(id)?.setProperties(visibility(if (visible) Property.VISIBLE else Property.NONE))
