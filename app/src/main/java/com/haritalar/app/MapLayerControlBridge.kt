@@ -15,7 +15,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory.visibility
 
-/** Visible map controls for traffic, safety/POI overlays and navigation camera mode. */
+/** Visible map controls whose state is always derived from the current MapLibre style/camera. */
 object MapLayerControlBridge {
     private const val TRAFFIC_LAYER_ID = "haritalar-tomtom-traffic-layer"
     private const val POI_LAYER_ID = "haritalar-live-poi-circles"
@@ -82,21 +82,22 @@ object MapLayerControlBridge {
             background = rounded(0xF8FFFFFF.toInt(), 20f * density)
             elevation = 10f * density
         }
-        val traffic = makeToggle(activity, "Trafik", isVisible(map, TRAFFIC_LAYER_ID)) { visible ->
-            setVisible(map, TRAFFIC_LAYER_ID, visible)
-        }
-        val poi = makeToggle(activity, "Güvenlik / POI", isVisible(map, POI_LAYER_ID)) { visible ->
-            listOf(POI_LAYER_ID, POI_LABEL_LAYER_ID, POI_SELECTED_LAYER_ID).forEach { setVisible(map, it, visible) }
-        }
+        val traffic = makeLayerToggle(activity, "Trafik", map, listOf(TRAFFIC_LAYER_ID))
+        val poi = makeLayerToggle(
+            activity,
+            "Güvenlik / POI",
+            map,
+            listOf(POI_LAYER_ID, POI_LABEL_LAYER_ID, POI_SELECTED_LAYER_ID),
+        )
         val camera = Button(activity).apply {
-            text = if (map.cameraPosition.tilt >= 30.0) "2D navigasyon" else "3D navigasyon"
             setAllCaps(false)
             textSize = 12f
+            refreshCameraLabel(this, map)
             setOnClickListener {
                 val current = map.cameraPosition
                 val tilt = if (current.tilt >= 30.0) 0.0 else 45.0
                 map.cameraPosition = CameraPosition.Builder(current).tilt(tilt).build()
-                text = if (tilt > 0) "2D navigasyon" else "3D navigasyon"
+                refreshCameraLabel(this, map)
             }
         }
         panel.addView(traffic)
@@ -109,21 +110,63 @@ object MapLayerControlBridge {
         })
     }
 
-    private fun makeToggle(activity: Activity, title: String, initial: Boolean, onChanged: (Boolean) -> Unit): Button =
-        Button(activity).apply {
-            isAllCaps = false
-            textSize = 12f
-            var enabled = initial
-            fun refresh() { text = "$title: ${if (enabled) "Açık" else "Kapalı"}" }
-            refresh()
-            setOnClickListener { enabled = !enabled; refresh(); onChanged(enabled) }
+    private fun makeLayerToggle(
+        activity: Activity,
+        title: String,
+        map: MapLibreMap,
+        layerIds: List<String>,
+    ): Button = Button(activity).apply {
+        isAllCaps = false
+        textSize = 12f
+
+        fun refresh() {
+            val state = groupVisibility(map, layerIds)
+            isEnabled = state != null
+            text = when (state) {
+                true -> "$title: Açık"
+                false -> "$title: Kapalı"
+                null -> "$title: Kullanılamıyor"
+            }
         }
 
-    private fun isVisible(map: MapLibreMap, id: String): Boolean =
-        map.style?.getLayer(id)?.getVisibility()?.value != Property.NONE
+        refresh()
+        setOnClickListener {
+            val current = groupVisibility(map, layerIds) ?: run {
+                refresh()
+                return@setOnClickListener
+            }
+            val requested = !current
+            setVisible(map, layerIds, requested)
+            refresh()
+        }
+    }
 
-    private fun setVisible(map: MapLibreMap, id: String, visible: Boolean) {
-        map.style?.getLayer(id)?.setProperties(visibility(if (visible) Property.VISIBLE else Property.NONE))
+    private fun refreshCameraLabel(button: Button, map: MapLibreMap) {
+        button.text = if (map.cameraPosition.tilt >= 30.0) "2D navigasyon" else "3D navigasyon"
+    }
+
+    /** Null means the complete layer group is not present/valid in the active style. */
+    private fun groupVisibility(map: MapLibreMap, ids: List<String>): Boolean? {
+        val style = map.style ?: return null
+        val values = ids.map { id ->
+            style.getLayer(id)?.getVisibility()?.value ?: return null
+        }
+        val visible = values.count { it != Property.NONE }
+        return when {
+            visible == values.size -> true
+            visible == 0 -> false
+            else -> null
+        }
+    }
+
+    /** Applies the requested state only when every target layer exists, then verifies it. */
+    private fun setVisible(map: MapLibreMap, ids: List<String>, visible: Boolean): Boolean {
+        val style = map.style ?: return false
+        if (ids.any { style.getLayer(it) == null }) return false
+        ids.forEach { id ->
+            style.getLayer(id)?.setProperties(visibility(if (visible) Property.VISIBLE else Property.NONE))
+        }
+        return groupVisibility(map, ids) == visible
     }
 
     private fun rounded(color: Int, radius: Float) = GradientDrawable().apply {
