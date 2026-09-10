@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.Application
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -25,6 +27,9 @@ object MapLayerControlBridge {
     private const val POI_SELECTED_LAYER_ID = "haritalar-live-poi-selected"
     private const val CONTROL_TAG = "haritalar-layer-controls"
     private const val PANEL_TAG = "haritalar-layer-panel"
+    private const val STYLE_WAIT_INTERVAL_MS = 100L
+    private const val STYLE_WAIT_TIMEOUT_MS = 15_000L
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun install(app: Application) {
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
@@ -45,8 +50,28 @@ object MapLayerControlBridge {
         val mapView = findView(root, MapView::class.java) ?: return
         if (root.findViewWithTag<View>(CONTROL_TAG) != null) return
         mapView.getMapAsync { map ->
-            if (root.findViewWithTag<View>(CONTROL_TAG) == null) addControls(activity, root, map)
+            waitForStyleAndAddControls(activity, root, map, System.currentTimeMillis())
         }
+    }
+
+    /** MapLibre's map callback can arrive before the activity's setStyle callback has installed its layers. */
+    private fun waitForStyleAndAddControls(
+        activity: Activity,
+        root: ViewGroup,
+        map: MapLibreMap,
+        startedAt: Long,
+    ) {
+        if (root.findViewWithTag<View>(CONTROL_TAG) != null) return
+        if (!activity.isFinishing && !activity.isDestroyed && map.style != null) {
+            addControls(activity, root, map)
+            return
+        }
+        if (activity.isFinishing || activity.isDestroyed) return
+        if (System.currentTimeMillis() - startedAt >= STYLE_WAIT_TIMEOUT_MS) return
+        mainHandler.postDelayed(
+            { waitForStyleAndAddControls(activity, root, map, startedAt) },
+            STYLE_WAIT_INTERVAL_MS,
+        )
     }
 
     private fun addControls(activity: Activity, root: ViewGroup, map: MapLibreMap) {
@@ -160,7 +185,8 @@ object MapLayerControlBridge {
     private fun groupVisibility(map: MapLibreMap, ids: List<String>): Boolean? {
         val style = map.style ?: return null
         if (ids.isEmpty()) return null
-        val values = ids.map { id -> style.getLayer(id)?.getVisibility()?.value ?: return@map null }
+        val values = ids.mapNotNull { id -> style.getLayer(id)?.getVisibility()?.value }
+        if (values.size != ids.size) return null
         val visible = values.count { it != Property.NONE }
         return when {
             visible == values.size -> true
