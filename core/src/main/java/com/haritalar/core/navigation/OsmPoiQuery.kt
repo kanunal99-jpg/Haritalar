@@ -23,7 +23,8 @@ object OsmPoiQuery {
         val query = scoped ?: """
               nwr[amenity~"^(restaurant|cafe|pharmacy|hospital|school|parking|fuel|bank|atm|charging_station|fast_food|marketplace|rest_area|townhall|courthouse|police|fire_station|post_office|library|community_centre)$"]($box);
               nwr[shop~"^(supermarket|convenience|mall|department_store|bakery|butcher|clothes|electronics|hardware|furniture)$"]($box);
-              nwr[highway~"^(rest_area|traffic_signals|speed_camera|crossing)$"]($box);
+              nwr[highway~"^(traffic_signals|speed_camera|crossing)$"]($box);
+              nwr[highway="rest_area"]($box);
               nwr[enforcement~"^(maxspeed|average_speed)$"]($box);
               nwr[railway~"^(station|halt|tram_stop|subway_entrance)$"]($box);
               nwr[route="tram"]($box);
