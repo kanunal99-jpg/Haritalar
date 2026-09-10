@@ -116,7 +116,7 @@ class TrafficRouteRankingServiceTest {
                     val point = route?.coordinates?.singleOrNull()
                     calls += "${point?.latitude},${point?.longitude}"
                     val geometry = when {
-                        point?.latitude == 41.01 -> listOf(GeoCoordinate(41.0, 29.0), GeoCoordinate(41.01, 29.01))
+                        point?.latitude == 41.0 -> listOf(GeoCoordinate(41.0, 29.0), GeoCoordinate(41.01, 29.01))
                         point?.latitude == 41.02 -> listOf(GeoCoordinate(41.02, 29.0), GeoCoordinate(41.02, 29.02))
                         else -> emptyList()
                     }
