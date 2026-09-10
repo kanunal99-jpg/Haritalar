@@ -11,6 +11,10 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import com.haritalar.core.navigation.GeoCoordinate
+import com.haritalar.core.traffic.TomTomTrafficProvider
+import com.haritalar.core.traffic.TrafficBounds
+import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,6 +81,43 @@ class MainActivitySmokeTest {
             throw AssertionError("Second MainActivity launch succeeded but controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
             second.close()
+        }
+    }
+
+    @Test
+    fun packagedTomTomCredentialCanFetchLiveTraffic() {
+        check(BuildConfig.TOMTOM_API_KEY.isNotBlank()) {
+            "TOMTOM_API_KEY is empty in the packaged app BuildConfig"
+        }
+
+        val point = GeoCoordinate(latitude = 41.0082, longitude = 28.9784)
+        val snapshot = try {
+            runBlocking {
+                TomTomTrafficProvider(
+                    apiKey = BuildConfig.TOMTOM_API_KEY,
+                    maxSamples = 1,
+                ).fetchTraffic(
+                    bounds = TrafficBounds(
+                        south = point.latitude,
+                        west = point.longitude,
+                        north = point.latitude,
+                        east = point.longitude,
+                    ),
+                    route = null,
+                )
+            }
+        } catch (error: Throwable) {
+            throw AssertionError("Packaged TomTom credential failed at runtime. Live diagnostics:\n${liveDiagnostics()}", error)
+        }
+
+        check(snapshot.providerId == TomTomTrafficProvider.ID) {
+            "Unexpected traffic provider: ${snapshot.providerId}"
+        }
+        check(snapshot.segments.isNotEmpty()) {
+            "TomTom returned no verified traffic segment for the live smoke-test point"
+        }
+        check(snapshot.confidence.name == "HIGH") {
+            "TomTom live snapshot confidence was ${snapshot.confidence}"
         }
     }
 
