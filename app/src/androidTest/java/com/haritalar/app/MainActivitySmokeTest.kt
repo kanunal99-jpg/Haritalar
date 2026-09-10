@@ -52,6 +52,30 @@ class MainActivitySmokeTest {
     }
 
     @Test
+    fun mapLayerControlsBecomeVisibleAfterMapInitialization() {
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            val deadline = SystemClock.uptimeMillis() + 8_000L
+            var found = false
+            while (SystemClock.uptimeMillis() < deadline && !found) {
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                scenario.onActivity { activity ->
+                    val content = activity.findViewById<ViewGroup>(android.R.id.content)
+                    found = findTextView(content, "Katmanlar") != null
+                }
+                if (!found) SystemClock.sleep(250L)
+            }
+            check(found) {
+                "Visible map layer control was not created after MapLibre initialization"
+            }
+        } catch (error: Throwable) {
+            throw AssertionError("Map layer controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
+        } finally {
+            scenario.close()
+        }
+    }
+
+    @Test
     fun mainActivityCanBeOpenedTwiceAfterDestroy() {
         val first = try {
             ActivityScenario.launch(MainActivity::class.java)
@@ -72,8 +96,6 @@ class MainActivitySmokeTest {
             throw AssertionError("Second MainActivity launch failed after destroying the first activity. Live diagnostics:\n${liveDiagnostics()}", error)
         }
         try {
-            // Allow MapLibre/native teardown from the first instance to settle before
-            // checking that the second activity remains alive.
             SystemClock.sleep(1_000L)
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             second.onActivity { activity ->
