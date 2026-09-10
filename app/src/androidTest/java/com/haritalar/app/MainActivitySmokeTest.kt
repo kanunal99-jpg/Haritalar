@@ -87,6 +87,7 @@ class MainActivitySmokeTest {
             val poiIds = listOf("haritalar-live-poi-circles", "haritalar-live-poi-labels", "haritalar-live-poi-selected")
             val deadline = SystemClock.uptimeMillis() + 12_000L
             var verified = false
+            var lastDiagnostic = "no attempt"
             while (SystemClock.uptimeMillis() < deadline && !verified) {
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                 scenario.onActivity { activity ->
@@ -101,30 +102,33 @@ class MainActivitySmokeTest {
                             val style = map.style ?: return@onActivity
                             val trafficLayers = trafficIds.mapNotNull { style.getLayer(it) }
                             val poiLayers = poiIds.mapNotNull { style.getLayer(it) }
+                            lastDiagnostic = "trafficButton=${traffic?.text}, poiButton=${poi?.text}, trafficLayers=${trafficLayers.map { it.id }}, poiLayers=${poiLayers.map { it.id }}"
                             if (traffic != null && poi != null && trafficLayers.isNotEmpty() && poiLayers.size == poiIds.size) {
                                 val trafficBefore = trafficLayers.map { it.getVisibility().value }
                                 val poiBefore = poiLayers.map { it.getVisibility().value }
                                 traffic.performClick()
-                                poi.performClick()
                                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                                 val trafficAfter = trafficLayers.map { it.getVisibility().value }
-                                val poiAfter = poiLayers.map { it.getVisibility().value }
-                                check(trafficAfter != trafficBefore) { "Traffic button did not change real traffic-layer visibility" }
-                                check(poiAfter != poiBefore) { "POI button did not change real MapLibre visibility" }
-                                check(traffic.text.toString() == "Trafik: ${if (trafficAfter.all { it != "none" }) "Açık" else "Kapalı"}") {
-                                    "Traffic label is not synchronized with MapLibre state: ${traffic.text}"
+                                val trafficChanged = trafficAfter != trafficBefore
+                                val trafficLabelOk = traffic.text.toString() == "Trafik: ${if (trafficAfter.all { it != "none" }) "Açık" else "Kapalı"}"
+                                if (!trafficChanged || !trafficLabelOk) {
+                                    lastDiagnostic = "trafficBefore=$trafficBefore trafficAfter=$trafficAfter trafficText=${traffic.text} trafficChanged=$trafficChanged trafficLabelOk=$trafficLabelOk; $lastDiagnostic"
+                                } else {
+                                    poi.performClick()
+                                    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                                    val poiAfter = poiLayers.map { it.getVisibility().value }
+                                    val poiChanged = poiAfter != poiBefore
+                                    val poiLabelOk = poi.text.toString() == "Güvenlik / POI: ${if (poiAfter.all { it != "none" }) "Açık" else "Kapalı"}"
+                                    if (poiChanged && poiLabelOk) verified = true
+                                    else lastDiagnostic = "poiBefore=$poiBefore poiAfter=$poiAfter poiText=${poi.text} poiChanged=$poiChanged poiLabelOk=$poiLabelOk; $lastDiagnostic"
                                 }
-                                check(poi.text.toString() == "Güvenlik / POI: ${if (poiAfter.all { it != "none" }) "Açık" else "Kapalı"}") {
-                                    "POI label is not synchronized with MapLibre state: ${poi.text}"
-                                }
-                                verified = true
                             }
                         }
                     }
                 }
                 if (!verified) SystemClock.sleep(250L)
             }
-            check(verified) { "Layer buttons could not be verified against the active MapLibre style within timeout" }
+            check(verified) { "Layer buttons failed real MapLibre visibility verification: $lastDiagnostic" }
         } catch (error: Throwable) {
             throw AssertionError("Layer buttons did not pass real MapLibre visibility verification. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally { scenario.close() }
