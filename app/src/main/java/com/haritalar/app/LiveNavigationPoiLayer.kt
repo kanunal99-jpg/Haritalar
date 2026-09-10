@@ -9,11 +9,13 @@ import com.haritalar.core.navigation.NavigationPoiCategory
 import com.haritalar.core.navigation.NavigationPoiDetails
 import com.haritalar.core.navigation.OsmPoiParser
 import com.haritalar.core.navigation.OsmPoiQuery
+import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
@@ -25,8 +27,12 @@ import org.maplibre.android.style.layers.PropertyFactory.textAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.textField
 import org.maplibre.android.style.layers.PropertyFactory.textIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.textSize
-import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.RasterSource
+import org.maplibre.android.style.sources.TileSet
+import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
@@ -35,7 +41,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.Executors
 
-/** Bounded, throttled live OSM POI overlay. No paid provider or API key is required. */
+/** Bounded, throttled live OSM POI overlay plus the real TomTom traffic tile layer. */
 class LiveNavigationPoiLayer(
     private val onPoiSelected: (NavigationPoiDetails) -> Unit = {},
 ) {
@@ -45,6 +51,10 @@ class LiveNavigationPoiLayer(
         const val LABEL_LAYER_ID = "haritalar-live-poi-labels"
         private const val SELECTED_SOURCE_ID = "haritalar-live-poi-selected-source"
         private const val SELECTED_LAYER_ID = "haritalar-live-poi-selected"
+        private const val TRAFFIC_SOURCE_ID = "haritalar-tomtom-traffic-source"
+        private const val TRAFFIC_LAYER_ID = "haritalar-tomtom-traffic-layer"
+        private const val TRAFFIC_TILE_TEMPLATE =
+            "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png"
         private const val DEBOUNCE_MS = 900L
         private const val MIN_REFRESH_MS = 5_000L
         private const val MAX_RESULTS = 300
@@ -70,6 +80,7 @@ class LiveNavigationPoiLayer(
 
     fun install(map: MapLibreMap, style: Style) {
         this.map = map
+        installTrafficLayer(style)
         if (style.getSource(SOURCE_ID) == null) {
             style.addSource(GeoJsonSource(SOURCE_ID, FeatureCollection.fromFeatures(emptyArray())))
         }
@@ -79,7 +90,33 @@ class LiveNavigationPoiLayer(
         if (style.getLayer(CIRCLE_LAYER_ID) == null) {
             style.addLayer(
                 CircleLayer(CIRCLE_LAYER_ID, SOURCE_ID).withProperties(
-                    circleRadius(6f), circleColor("#1976D2"), circleOpacity(0.9f),
+                    circleRadius(
+                        Expression.match(
+                            Expression.get("category"),
+                            Expression.literal("TRAFFIC_SIGNAL"), Expression.literal(8f),
+                            Expression.literal("SPEED_CAMERA"), Expression.literal(9f),
+                            Expression.literal("FUEL"), Expression.literal(8f),
+                            Expression.literal("PLACE_OF_WORSHIP"), Expression.literal(8f),
+                            Expression.literal("RAILWAY"), Expression.literal(8f),
+                            Expression.literal("TRAM"), Expression.literal(8f),
+                            Expression.literal("MARKET"), Expression.literal(8f),
+                            Expression.literal(6f),
+                        ),
+                    ),
+                    circleColor(
+                        Expression.match(
+                            Expression.get("category"),
+                            Expression.literal("TRAFFIC_SIGNAL"), Expression.literal("#D32F2F"),
+                            Expression.literal("SPEED_CAMERA"), Expression.literal("#7B1FA2"),
+                            Expression.literal("FUEL"), Expression.literal("#F57C00"),
+                            Expression.literal("PLACE_OF_WORSHIP"), Expression.literal("#1565C0"),
+                            Expression.literal("RAILWAY"), Expression.literal("#424242"),
+                            Expression.literal("TRAM"), Expression.literal("#00897B"),
+                            Expression.literal("MARKET"), Expression.literal("#6A1B9A"),
+                            Expression.literal("#1976D2"),
+                        ),
+                    ),
+                    circleOpacity(0.95f),
                     circleStrokeColor("#FFFFFF"), circleStrokeWidth(2f),
                 ),
             )
@@ -94,13 +131,37 @@ class LiveNavigationPoiLayer(
         }
         if (style.getLayer(LABEL_LAYER_ID) == null) {
             SymbolLayer(LABEL_LAYER_ID, SOURCE_ID).withProperties(
-                textField(org.maplibre.android.style.expressions.Expression.get("name")),
+                textField(Expression.get("name")),
                 textSize(11f), textAllowOverlap(false), textIgnorePlacement(false),
                 iconAllowOverlap(false),
             ).also(style::addLayer)
         }
         map.removeOnMapClickListener(mapClickListener)
         map.addOnMapClickListener(mapClickListener)
+    }
+
+    private fun installTrafficLayer(style: Style) {
+        if (BuildConfig.TOMTOM_API_KEY.isBlank()) {
+            Log.w(TAG, "TomTom traffic tile layer disabled: API key is empty")
+            return
+        }
+        if (style.getSource(TRAFFIC_SOURCE_ID) == null) {
+            val template = "$TRAFFIC_TILE_TEMPLATE?key=${BuildConfig.TOMTOM_API_KEY}&thickness=6&tileSize=256"
+            style.addSource(
+                RasterSource(
+                    TRAFFIC_SOURCE_ID,
+                    TileSet("2.2.0", template),
+                    256,
+                ),
+            )
+        }
+        if (style.getLayer(TRAFFIC_LAYER_ID) == null) {
+            style.addLayer(
+                RasterLayer(TRAFFIC_LAYER_ID, TRAFFIC_SOURCE_ID).withProperties(
+                    rasterOpacity(0.72f),
+                ),
+            )
+        }
     }
 
     private fun selectPoi(feature: Feature) {
