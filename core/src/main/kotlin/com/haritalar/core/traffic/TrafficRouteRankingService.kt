@@ -71,16 +71,22 @@ class TrafficRouteRankingService(
             route.routeId to snapshot
         }.toMap()
 
-        val matchedByRoute = routes.associate { route ->
-            val snapshot = observations[route.routeId]
-            route.routeId to if (snapshot != null && snapshot.isUsable(nowEpochMs) && snapshot.confidence != TrafficConfidence.LOW) {
-                TrafficRouteAdapter.matchSnapshotToRoute(
-                    route = route.coordinates,
-                    snapshot = snapshot,
-                    nowEpochMs = nowEpochMs,
-                )
-            } else {
-                emptyList()
+        val matchedByRoute = buildMap {
+            routes.forEach { route ->
+                val snapshot = observations[route.routeId]
+                val matched = if (snapshot != null && snapshot.isUsable(nowEpochMs) && snapshot.confidence != TrafficConfidence.LOW) {
+                    TrafficRouteAdapter.matchSnapshotToRoute(
+                        route = route.coordinates,
+                        snapshot = snapshot,
+                        nowEpochMs = nowEpochMs,
+                    )
+                } else {
+                    emptyList()
+                }
+                put(route.routeId, matched)
+                if (route.routeId.endsWith("|true")) {
+                    put(route.routeId.removeSuffix("|true") + "|false", matched)
+                }
             }
         }
 
