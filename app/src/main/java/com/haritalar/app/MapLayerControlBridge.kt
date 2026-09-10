@@ -172,17 +172,17 @@ object MapLayerControlBridge {
         TRAFFIC_SEVERITY_LAYER_IDS.forEach { add(TRAFFIC_LAYER_PREFIX + it) }
     }.filter { map.style?.getLayer(it) != null }
 
+    /**
+     * Treat a mixed group as actionable rather than a dead-end state. Any visible layer means
+     * the group is currently considered open; the next click normalizes every existing layer to
+     * hidden. The following click can then turn the whole group back on consistently.
+     */
     private fun groupVisibility(map: MapLibreMap, ids: List<String>): Boolean? {
         val style = map.style ?: return null
         if (ids.isEmpty()) return null
         val values = ids.mapNotNull { id -> style.getLayer(id)?.getVisibility()?.value }
         if (values.size != ids.size) return null
-        val visible = values.count { it != Property.NONE }
-        return when {
-            visible == values.size -> true
-            visible == 0 -> false
-            else -> null
-        }
+        return values.any { it != Property.NONE }
     }
 
     private fun setVisible(map: MapLibreMap, ids: List<String>, visible: Boolean): Boolean {
