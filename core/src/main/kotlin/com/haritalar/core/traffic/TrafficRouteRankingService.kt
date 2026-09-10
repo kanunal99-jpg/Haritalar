@@ -22,10 +22,6 @@ class TrafficRouteRankingService(
         nowEpochMs: Long = System.currentTimeMillis(),
     ): List<TrafficRouteRanking.RankedCandidate> = rankDetailedSuspend(routes, nowEpochMs).ranked
 
-    /**
-     * Blocking bridge for Android UI/executor callers that are not suspend functions.
-     * The actual provider/ranking pipeline remains suspend-based and is executed once.
-     */
     fun rankDetailed(
         routes: List<TrafficRouteRanking.RouteCandidate>,
         nowEpochMs: Long = System.currentTimeMillis(),
@@ -49,27 +45,26 @@ class TrafficRouteRankingService(
             ?: throw IllegalStateException("Detailed traffic ranking completed without a result")
     }
 
-    /** Suspend implementation shared by the public suspend and blocking bridges. */
+    /**
+     * Each alternative gets its own bounded multi-point observation. TomTom Flow
+     * Segment Data is point-based, so a single midpoint can miss the road segment
+     * actually driven by the route. Four evenly distributed points materially
+     * improve coverage while keeping the provider request count bounded.
+     */
     private suspend fun rankDetailedSuspend(
         routes: List<TrafficRouteRanking.RouteCandidate>,
         nowEpochMs: Long,
     ): DetailedResult {
         if (routes.isEmpty()) return DetailedResult(emptyList(), emptyMap())
 
-        /*
-         * A single snapshot built from all alternative geometries can undersample
-         * individual routes: TomTom Flow Segment Data is point-based. One request
-         * is therefore made for one representative point per route, bounded by the
-         * number of route alternatives. This keeps traffic attribution route-local
-         * and avoids applying one route's segment to another route.
-         */
         val observations = routes.mapNotNull { route ->
-            val point = representativePoint(route.coordinates) ?: return@mapNotNull null
+            val points = representativePoints(route.coordinates)
+            if (points.isEmpty()) return@mapNotNull null
             val snapshot = runCatching {
                 providerChain.fetch(
-                    coordinate = point,
+                    coordinate = points.first(),
                     bounds = boundsFor(route.coordinates),
-                    route = TrafficRoute(listOf(point)),
+                    route = TrafficRoute(points),
                     nowEpochMs = nowEpochMs,
                 )
             }.getOrNull()
@@ -138,10 +133,13 @@ class TrafficRouteRankingService(
         trafficApplied = false,
     )
 
-    private fun representativePoint(coordinates: List<GeoCoordinate>): GeoCoordinate? {
-        val valid = coordinates.filter(::validCoordinate)
-        if (valid.isEmpty()) return null
-        return valid[valid.lastIndex / 2]
+    private fun representativePoints(coordinates: List<GeoCoordinate>, maxPoints: Int = 4): List<GeoCoordinate> {
+        val valid = coordinates.filter(::validCoordinate).distinct()
+        if (valid.isEmpty()) return emptyList()
+        if (valid.size <= maxPoints) return valid
+        return (0 until maxPoints).map { index ->
+            valid[index * valid.lastIndex / (maxPoints - 1)]
+        }.distinct()
     }
 
     private fun boundsFor(coordinates: List<GeoCoordinate>): TrafficBounds {
