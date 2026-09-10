@@ -1,0 +1,64 @@
+name: Append activity log once
+
+on:
+  push:
+    paths:
+      - .github/workflows/append-activity-log.yml
+
+permissions:
+  contents: write
+
+jobs:
+  append:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Append verified records
+        run: |
+          cat >> docs/PROJECT_ACTIVITY_LOG.md <<'EOF'
+
+## İşlem #0118 — Activity log append automation ile kaydın güvenli eklenmesi
+
+- **Tarih:** 2026-09-10
+- **Tür:** Dokümantasyon / operasyon kaydı
+- **Amaç:** GitHub Contents API'nin append-only dosyada tam blob gerektirmesi nedeniyle doğrudan update işleminde yaşanan schema/uzunluk engelini aşmadan mevcut tarihçeyi koruyarak yeni kayıtları eklemek.
+- **Önceki durum:** `docs/PROJECT_ACTIVITY_LOG.md` tam blob'u korunuyordu; doğrudan update çağrısı bu turda schema doğrulamasında tamamlanamadı ve dosya değiştirilmedi.
+- **Yapılan:** Bu tek-seferlik GitHub Actions workflow'u mevcut log dosyasına yalnızca sona ekleme yapacak şekilde hazırlandı. Workflow ilk çalışmasında kayıtları ekleyip kendisini silecektir.
+- **Sonuç:** Önceki log içeriğine dokunulmadı; append işlemi GitHub runner üzerinde atomik commit ile yapılmak üzere hazırlandı.
+- **Sonraki adım:** Workflow commitini ve oluşturduğu log commitini GitHub'dan doğrula.
+
+## İşlem #0119 — Kullanıcıya görünür Katmanlar özelliğinin gerçek CI doğrulaması
+
+- **Tarih:** 2026-09-10
+- **Tür:** CI / APK / UI smoke
+- **Kapsam:** `MapLayerControlBridge.kt`, `HaritalarApplication.kt`, `MainActivitySmokeTest.kt`.
+- **Yeni özellik:** Haritada görünür `Katmanlar` menüsü; `Trafik` katmanı aç/kapat, `Güvenlik / POI` katmanı aç/kapat ve `2D/3D navigasyon` kamera geçişi.
+- **Test hedefi:** Android instrumentation smoke testinin MapLibre başlatılmasından sonra `Katmanlar` kontrolünü 8 saniye içinde view hierarchy'de bulması.
+- **CI sonucu:** Bu kayıt oluşturulurken Android APK Run #480 sonucu henüz kesinleşmemiştir.
+- **APK:** Henüz doğrulanmadı.
+- **Canlı kullanıcı doğrulaması:** Henüz yapılmadı.
+- **Sonraki adım:** Run #480'i tamamlanmış sonuç, unit/instrumentation test adımları ve APK artifact/digest ile doğrula.
+
+## İşlem #0120 — Obsolete one-shot traffic workflow temizliği
+
+- **Tarih:** 2026-09-10
+- **Tür:** CI temizliği
+- **Amaç:** Artık geçerli source anchor'larına dayanmayan `apply-traffic-map-live-colors.yml` tek-seferlik patch workflow'unun her push'ta gereksiz/fail sonuç üretmesini önlemek.
+- **Kontrol:** Workflow dosyası, eski `activeRouteSignature` anchor'larını zorunlu tuttuğu ve tamamlanmış bir patch işlemini yeniden uygulamaya çalıştığı için artık güvenilir CI parçası değildi.
+- **Yapılan:** `.github/workflows/apply-traffic-map-live-colors.yml` kaldırıldı.
+- **Commit:** `a0246fc69f889925184e3d9e1d76f2cbfb40d1cd`
+- **Sonuç:** Obsolete one-shot workflow repository'den çıkarıldı; ana `Android APK` workflow korunuyor.
+- **CI:** Temizleme commitinin Android Run #480 sonucu bu kayıt hazırlanırken beklemededir.
+- **Sonraki adım:** Run #480 ve constitution validation sonucunu doğrula.
+EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/PROJECT_ACTIVITY_LOG.md
+          git rm .github/workflows/append-activity-log.yml
+          git commit -m "docs: append visible map feature activity records"
+          git push origin main
