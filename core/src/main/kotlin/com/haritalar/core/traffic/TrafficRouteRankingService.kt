@@ -116,9 +116,7 @@ class TrafficRouteRankingService(
         rankingBlock.startCoroutine(object : Continuation<List<TrafficRouteRanking.RankedCandidate>> {
             override val context = EmptyCoroutineContext
             override fun resumeWith(result: Result<List<TrafficRouteRanking.RankedCandidate>>) {
-                result.let { value ->
-                    this@TrafficRouteRankingServiceResultHolder.set(value)
-                }
+                this@TrafficRouteRankingServiceResultHolder.resume(result)
             }
         })
         if (!completed.await(timeoutMs, TimeUnit.MILLISECONDS)) {
@@ -159,8 +157,4 @@ class TrafficRouteRankingService(
             coordinate.latitude in -90.0..90.0 && coordinate.longitude in -180.0..180.0
 
     private companion object { const val DEFAULT_BLOCKING_TIMEOUT_MS = 120_000L }
-}
-
-private class TrafficRouteRankingServiceResultHolder {
-    fun set(value: Result<List<TrafficRouteRanking.RankedCandidate>>) {}
 }
