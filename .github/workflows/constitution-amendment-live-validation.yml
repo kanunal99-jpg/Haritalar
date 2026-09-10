@@ -20,8 +20,8 @@ jobs:
             rm .github/traffic-map-patch.pending
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add app/src/main/java/com/haritalar/app/MainActivity.kt core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentation.kt core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentationTest.kt docs/operations/OP-0402-traffic-route-map-live-colors.md .github/traffic-map-patch.pending
-            git commit -m "feat(traffic): render verified route segment colors"
+            git add app/src/main/java/com/haritalar/app/MainActivity.kt app/src/main/java/com/haritalar/app/TrafficEngineFactory.kt core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentation.kt core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteMapPresentationTest.kt docs/operations/OP-0402-traffic-route-map-live-colors.md docs/PROJECT_ACTIVITY_LOG.md .github/traffic-map-patch.pending
+            git commit -m "feat(traffic): render verified route and map-wide segment colors"
             git push
             exit 0
           fi
@@ -29,7 +29,6 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import subprocess
           p = Path('PROJECT_WORK_PROMPT.md')
           text = p.read_text(encoding='utf-8')
           marker = '### 🚨 YENİ ÖZELLİKLERDE CANLI KULLANICI DOĞRULAMASI ZORUNLUDUR 🚨'
@@ -37,8 +36,7 @@ jobs:
               print('Constitution amendment already present.')
               raise SystemExit(0)
           block = '''\n\n### 🚨 YENİ ÖZELLİKLERDE CANLI KULLANICI DOĞRULAMASI ZORUNLUDUR 🚨\n\n**HER YENİ EKLENEN ÖZELLİK, KOD/UNIT TEST/CI BAŞARISINDAN AYRI OLARAK CANLIDA UYGULAMA ÜZERİNDE KONTROL EDİLECEKTİR. ÖZELLİĞİN ÇALIŞTIĞI VARSAYILMAYACAK; PROJE SAHİBİNE (ÜNAL KAN) AÇIKÇA BİLGİ VERİLECEK VE CANLI KONTROL İÇİN APK/BUILD VE GEREKLİ KONTROL ADIMLARI SUNULACAKTIR.**\n\n**PROJE SAHİBİ “KONTROL BAŞARILI” DEMEDEN YENİ GELİŞTİRMEYE, BAŞKA ÖZELLİĞE VEYA SONRAKİ İŞLEM ADIMINA GEÇİLMEYECEKTİR.**\n\n**BU KURALIN ÇIKIŞ NEDENİ:** Trafik yoğunluğu haritasının aktif olduğu daha önce söylenmiş olmasına rağmen uygulamada rota içindeyken de rota seçili değilken de gerçek yeşil/sarı/turuncu/kırmızı trafik katmanının görünmediği ortaya çıkmıştır. Bundan sonra “kodda var”, “CI başarılı”, “APK üretildi” veya “teknik olarak hazır” ifadeleri canlı kullanıcı davranışının doğrulandığı anlamına gelmeyecektir. Özellik canlıda görünür/çalışır ve proje sahibi tarafından başarılı olarak doğrulanırsa ancak o zaman **KULLANICI DOĞRULAMASI / BAŞARILI** kabul edilecektir.\n\n**CANLI KONTROL KAYDI:** Her yeni özellik için hangi APK/build'in kontrol edildiği, kontrol edilen özellik, beklenen davranış, gerçek gözlem ve proje sahibinin sonucu (`KONTROL BAŞARILI` / `BAŞARISIZ` / `BEKLİYOR`) repo işlem kayıtlarında tutulacaktır. Başarısız kullanıcı kontrolü başarısız olarak kalacak ve düzeltilmeden sonraki özelliğe geçilmeyecektir.\n\n### 🚨 HER APK ÇIKIŞINDA ZORUNLU SÜRÜM/ÖZELLİK RAPORU 🚨\n\n**HER YENİ APK ÇIKIŞINDA RAPORDA MUTLAKA APK'NIN TOPLAM DOSYA BOYUTU (BYTE VE MB), ARTIFACT ADI/ID'Sİ VE DOĞRULANMIŞ SHA-256 DEĞERİ YAZILACAKTIR.**\n\n**AYNI APK RAPORUNDA, O APK'YA GERÇEKTEN GİREN TÜM GERÇEKLEŞMİŞ ÖZELLİKLER MADDE MADDE YAZILACAKTIR. YENİ EKLENEN ÖZELLİKLER AYRICA AÇIKÇA İŞARETLENECEK; SADECE PLANDA OLAN, SADECE TEST EDİLEN VEYA SADECE KODDA HAZIRLANAN AMA CANLIDA DOĞRULANMAYAN ÖZELLİKLER “GERÇEKLEŞTİ” LİSTESİNE KONULMAYACAKTIR.**\n\n**APK RAPORU; COMMIT → CI → BUILD → ARTIFACT → BOYUT → SHA-256 → GERÇEKLEŞEN ÖZELLİKLER → CANLI KONTROL DURUMU zincirini birbirinden ayırarak gösterecektir.**\n'''
-          text = text.replace('## 1. Gerçeklik standardı', block + '\n## 1. Gerçeklik standardı', 1)
-          p.write_text(text, encoding='utf-8')
+          p.write_text(text.replace('## 1. Gerçeklik standardı', block + '\n## 1. Gerçeklik standardı', 1), encoding='utf-8')
       - name: Commit amendment
         run: |
           git config user.name "github-actions[bot]"
