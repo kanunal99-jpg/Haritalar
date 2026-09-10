@@ -17,16 +17,14 @@ object OsmPoiParser {
             val category = categoryOf(tags) ?: NavigationPoiCategory.OTHER
             val id = "osm:${element.optString("type", "unknown")}:${element.optLong("id", -1L)}"
             if (id.endsWith(":-1")) continue
-            val name = tags.optString("name").trim()
+
+            val explicitName = tags.optString("name").trim()
+            val name = explicitName.ifBlank { generatedName(category) }
             if (name.isBlank()) continue
 
             val street = tags.optString("addr:street").trim()
             val houseNumber = tags.optString("addr:housenumber").trim()
-            val address = listOf(street, houseNumber)
-                .filter { it.isNotBlank() }
-                .joinToString(" ")
-                .ifBlank { null }
-
+            val address = listOf(street, houseNumber).filter { it.isNotBlank() }.joinToString(" ").ifBlank { null }
             results += NavigationPoi(
                 id = id,
                 category = category,
@@ -42,14 +40,23 @@ object OsmPoiParser {
         return results
     }
 
-    private fun remoteUrl(value: String): String? =
-        value.takeIf { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
+    private fun generatedName(category: NavigationPoiCategory): String = when (category) {
+        NavigationPoiCategory.TRAFFIC_SIGNAL -> "Trafik ışığı"
+        NavigationPoiCategory.SPEED_CAMERA -> "Hız kamerası / radar"
+        NavigationPoiCategory.PEDESTRIAN_CROSSING -> "Yaya geçidi"
+        NavigationPoiCategory.FOREST -> "Ormanlık alan"
+        NavigationPoiCategory.SCHOOL -> "Okul"
+        else -> ""
+    }
+
+    private fun remoteUrl(value: String): String? = value.takeIf {
+        it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
+    }
 
     private fun coordinateOf(element: JSONObject): Pair<Double, Double>? {
         val lat = element.optDouble("lat", Double.NaN)
         val lon = element.optDouble("lon", Double.NaN)
         if (lat.isFinite() && lon.isFinite()) return lat to lon
-
         val center = element.optJSONObject("center") ?: return null
         val centerLat = center.optDouble("lat", Double.NaN)
         val centerLon = center.optDouble("lon", Double.NaN)
@@ -59,6 +66,8 @@ object OsmPoiParser {
     private fun categoryOf(tags: JSONObject): NavigationPoiCategory? = when {
         tags.optString("highway") == "traffic_signals" -> NavigationPoiCategory.TRAFFIC_SIGNAL
         tags.optString("highway") == "speed_camera" || tags.optString("enforcement") in setOf("maxspeed", "average_speed") -> NavigationPoiCategory.SPEED_CAMERA
+        tags.optString("highway") == "crossing" -> NavigationPoiCategory.PEDESTRIAN_CROSSING
+        tags.optString("landuse") == "forest" || tags.optString("natural") == "wood" || tags.optString("leisure") == "nature_reserve" -> NavigationPoiCategory.FOREST
         tags.optString("railway") == "tram_stop" || tags.optString("route") == "tram" -> NavigationPoiCategory.TRAM
         tags.optString("railway") in setOf("station", "halt", "subway_entrance") -> NavigationPoiCategory.RAILWAY
         tags.optString("amenity") in setOf("restaurant", "fast_food") -> NavigationPoiCategory.RESTAURANT
