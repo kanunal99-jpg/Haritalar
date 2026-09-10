@@ -45,7 +45,7 @@ object MapLayerControlBridge {
         })
     }
 
-    /** Explicitly retries from the activity after MapLibre style/layer installation. */
+    /** Re-checks the current activity after MainActivity changes the MapLibre style. */
     fun refresh(activity: Activity) {
         if (activity is MainActivity) installWhenReady(activity)
     }
@@ -60,12 +60,7 @@ object MapLayerControlBridge {
     }
 
     /** MapLibre's map callback can arrive before the activity's setStyle callback has installed its layers. */
-    private fun waitForStyleAndAddControls(
-        activity: Activity,
-        root: ViewGroup,
-        map: MapLibreMap,
-        startedAt: Long,
-    ) {
+    private fun waitForStyleAndAddControls(activity: Activity, root: ViewGroup, map: MapLibreMap, startedAt: Long) {
         if (root.findViewWithTag<View>(CONTROL_TAG) != null) return
         if (!activity.isFinishing && !activity.isDestroyed && controlsHaveRequiredLayers(map)) {
             addControls(activity, root, map)
@@ -73,19 +68,14 @@ object MapLayerControlBridge {
         }
         if (activity.isFinishing || activity.isDestroyed) return
         if (System.currentTimeMillis() - startedAt >= STYLE_WAIT_TIMEOUT_MS) return
-        mainHandler.postDelayed(
-            { waitForStyleAndAddControls(activity, root, map, startedAt) },
-            STYLE_WAIT_INTERVAL_MS,
-        )
+        mainHandler.postDelayed({ waitForStyleAndAddControls(activity, root, map, startedAt) }, STYLE_WAIT_INTERVAL_MS)
     }
 
     /** Do not expose controls until MainActivity has installed the actual layers they control. */
     private fun controlsHaveRequiredLayers(map: MapLibreMap): Boolean {
         val style = map.style ?: return false
-        val poiReady = listOf(POI_LAYER_ID, POI_LABEL_LAYER_ID, POI_SELECTED_LAYER_ID)
-            .all { style.getLayer(it) != null }
-        val trafficReady = style.getLayer(TOMTOM_RASTER_TRAFFIC_LAYER_ID) != null ||
-            TRAFFIC_SEVERITY_LAYER_IDS.any { style.getLayer(TRAFFIC_LAYER_PREFIX + it) != null }
+        val poiReady = listOf(POI_LAYER_ID, POI_LABEL_LAYER_ID, POI_SELECTED_LAYER_ID).all { style.getLayer(it) != null }
+        val trafficReady = style.getLayer(TOMTOM_RASTER_TRAFFIC_LAYER_ID) != null || TRAFFIC_SEVERITY_LAYER_IDS.any { style.getLayer(TRAFFIC_LAYER_PREFIX + it) != null }
         return poiReady && trafficReady
     }
 
@@ -107,11 +97,7 @@ object MapLayerControlBridge {
             setOnClickListener { togglePanel(activity, root, map) }
         }
         container.addView(button, LinearLayout.LayoutParams((108 * density).toInt(), (46 * density).toInt()))
-        root.addView(container, android.widget.FrameLayout.LayoutParams(-2, -2).apply {
-            gravity = Gravity.TOP or Gravity.END
-            topMargin = (170 * density).toInt()
-            rightMargin = (12 * density).toInt()
-        })
+        root.addView(container, android.widget.FrameLayout.LayoutParams(-2, -2).apply { gravity = Gravity.TOP or Gravity.END; topMargin = (170 * density).toInt(); rightMargin = (12 * density).toInt() })
     }
 
     private fun togglePanel(activity: Activity, root: ViewGroup, map: MapLibreMap) {
@@ -125,12 +111,7 @@ object MapLayerControlBridge {
             elevation = 10f * density
         }
         val traffic = makeLayerToggle(activity, "Trafik", map, trafficLayerIds(map))
-        val poi = makeLayerToggle(
-            activity,
-            "Güvenlik / POI",
-            map,
-            listOf(POI_LAYER_ID, POI_LABEL_LAYER_ID, POI_SELECTED_LAYER_ID),
-        )
+        val poi = makeLayerToggle(activity, "Güvenlik / POI", map, listOf(POI_LAYER_ID, POI_LABEL_LAYER_ID, POI_SELECTED_LAYER_ID))
         val camera = Button(activity).apply {
             setAllCaps(false)
             textSize = 12f
@@ -142,89 +123,51 @@ object MapLayerControlBridge {
                 refreshCameraLabel(this, map)
             }
         }
-        panel.addView(traffic)
-        panel.addView(poi)
-        panel.addView(camera)
-        root.addView(panel, android.widget.FrameLayout.LayoutParams((190 * density).toInt(), -2).apply {
-            gravity = Gravity.TOP or Gravity.END
-            topMargin = (220 * density).toInt()
-            rightMargin = (12 * density).toInt()
-        })
+        panel.addView(traffic); panel.addView(poi); panel.addView(camera)
+        root.addView(panel, android.widget.FrameLayout.LayoutParams((190 * density).toInt(), -2).apply { gravity = Gravity.TOP or Gravity.END; topMargin = (220 * density).toInt(); rightMargin = (12 * density).toInt() })
     }
 
-    private fun makeLayerToggle(
-        activity: Activity,
-        title: String,
-        map: MapLibreMap,
-        layerIds: List<String>,
-    ): Button = Button(activity).apply {
+    private fun makeLayerToggle(activity: Activity, title: String, map: MapLibreMap, layerIds: List<String>): Button = Button(activity).apply {
         isAllCaps = false
         textSize = 12f
-
         fun refresh() {
             val state = groupVisibility(map, layerIds)
             isEnabled = state != null
-            text = when (state) {
-                true -> "$title: Açık"
-                false -> "$title: Kapalı"
-                null -> "$title: Kullanılamıyor"
-            }
+            text = when (state) { true -> "$title: Açık"; false -> "$title: Kapalı"; null -> "$title: Kullanılamıyor" }
         }
-
         refresh()
         setOnClickListener {
-            val current = groupVisibility(map, layerIds) ?: run {
-                refresh()
-                return@setOnClickListener
-            }
-            val requested = !current
-            setVisible(map, layerIds, requested)
+            val current = groupVisibility(map, layerIds) ?: run { refresh(); return@setOnClickListener }
+            setVisible(map, layerIds, !current)
             refresh()
         }
     }
 
-    private fun refreshCameraLabel(button: Button, map: MapLibreMap) {
-        button.text = if (map.cameraPosition.tilt >= 30.0) "2D navigasyon" else "3D navigasyon"
-    }
+    private fun refreshCameraLabel(button: Button, map: MapLibreMap) { button.text = if (map.cameraPosition.tilt >= 30.0) "2D navigasyon" else "3D navigasyon" }
 
-    /** Traffic has two real rendering paths: the TomTom raster layer and dynamically added severity layers. */
-    private fun trafficLayerIds(map: MapLibreMap): List<String> {
-        val candidates = buildList {
-            add(TOMTOM_RASTER_TRAFFIC_LAYER_ID)
-            TRAFFIC_SEVERITY_LAYER_IDS.forEach { add(TRAFFIC_LAYER_PREFIX + it) }
-        }
-        return candidates.filter { map.style?.getLayer(it) != null }
-    }
+    private fun trafficLayerIds(map: MapLibreMap): List<String> = buildList {
+        add(TOMTOM_RASTER_TRAFFIC_LAYER_ID)
+        TRAFFIC_SEVERITY_LAYER_IDS.forEach { add(TRAFFIC_LAYER_PREFIX + it) }
+    }.filter { map.style?.getLayer(it) != null }
 
-    /** Null means no real traffic rendering layer exists in the active style. */
     private fun groupVisibility(map: MapLibreMap, ids: List<String>): Boolean? {
         val style = map.style ?: return null
         if (ids.isEmpty()) return null
         val values = ids.mapNotNull { id -> style.getLayer(id)?.getVisibility()?.value }
         if (values.size != ids.size) return null
         val visible = values.count { it != Property.NONE }
-        return when {
-            visible == values.size -> true
-            visible == 0 -> false
-            else -> null
-        }
+        return when { visible == values.size -> true; visible == 0 -> false; else -> null }
     }
 
-    /** Applies the requested state only to existing traffic/POI layers, then verifies the real MapLibre state. */
     private fun setVisible(map: MapLibreMap, ids: List<String>, visible: Boolean): Boolean {
         val style = map.style ?: return false
         val existingIds = ids.filter { style.getLayer(it) != null }
         if (existingIds.isEmpty()) return false
-        existingIds.forEach { id ->
-            style.getLayer(id)?.setProperties(visibility(if (visible) Property.VISIBLE else Property.NONE))
-        }
+        existingIds.forEach { id -> style.getLayer(id)?.setProperties(visibility(if (visible) Property.VISIBLE else Property.NONE)) }
         return groupVisibility(map, existingIds) == visible
     }
 
-    private fun rounded(color: Int, radius: Float) = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = radius
-    }
+    private fun rounded(color: Int, radius: Float) = GradientDrawable().apply { setColor(color); cornerRadius = radius }
 
     private fun <T : View> findView(root: View, type: Class<T>): T? {
         if (type.isInstance(root)) return type.cast(root)
