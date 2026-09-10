@@ -16,13 +16,12 @@ data class RouteTrafficUiModel(
             trafficApplied: Boolean,
         ): RouteTrafficUiModel {
             val safeBase = baseDurationSeconds.coerceAtLeast(0.0)
-            val safeAdjusted = adjustedDurationSeconds
-                ?.takeIf { it.isFinite() && it >= safeBase }
-                ?: safeBase
+            val validAdjustment = adjustedDurationSeconds?.takeIf { it.isFinite() && it >= safeBase }
+            val safeAdjusted = validAdjustment ?: safeBase
             return RouteTrafficUiModel(
                 baseDurationSeconds = safeBase,
                 adjustedDurationSeconds = safeAdjusted,
-                trafficApplied = trafficApplied,
+                trafficApplied = trafficApplied && validAdjustment != null,
             )
         }
     }
