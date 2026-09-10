@@ -18,7 +18,8 @@ import org.maplibre.android.style.layers.PropertyFactory.visibility
 /** Visible map controls whose state is always derived from the current MapLibre style/camera. */
 object MapLayerControlBridge {
     private const val TRAFFIC_LAYER_PREFIX = "haritalar-global-traffic-layer-"
-    private val TRAFFIC_LAYER_IDS = listOf("free", "light", "moderate", "heavy", "severe")
+    private val TRAFFIC_SEVERITY_LAYER_IDS = listOf("free", "light", "moderate", "heavy", "severe")
+    private const val TOMTOM_RASTER_TRAFFIC_LAYER_ID = "haritalar-tomtom-traffic-layer"
     private const val POI_LAYER_ID = "haritalar-live-poi-circles"
     private const val POI_LABEL_LAYER_ID = "haritalar-live-poi-labels"
     private const val POI_SELECTED_LAYER_ID = "haritalar-live-poi-selected"
@@ -83,7 +84,7 @@ object MapLayerControlBridge {
             background = rounded(0xF8FFFFFF.toInt(), 20f * density)
             elevation = 10f * density
         }
-        val traffic = makeLayerToggle(activity, "Trafik", map, TRAFFIC_LAYER_IDS.map { TRAFFIC_LAYER_PREFIX + it })
+        val traffic = makeLayerToggle(activity, "Trafik", map, trafficLayerIds(map))
         val poi = makeLayerToggle(
             activity,
             "Güvenlik / POI",
@@ -146,12 +147,20 @@ object MapLayerControlBridge {
         button.text = if (map.cameraPosition.tilt >= 30.0) "2D navigasyon" else "3D navigasyon"
     }
 
-    /** Null means the complete layer group is not present/valid in the active style. */
+    /** Traffic has two real rendering paths: the always-available TomTom raster layer and dynamically added severity layers. */
+    private fun trafficLayerIds(map: MapLibreMap): List<String> {
+        val candidates = buildList {
+            add(TOMTOM_RASTER_TRAFFIC_LAYER_ID)
+            TRAFFIC_SEVERITY_LAYER_IDS.forEach { add(TRAFFIC_LAYER_PREFIX + it) }
+        }
+        return candidates.filter { map.style?.getLayer(it) != null }
+    }
+
+    /** Null means no real traffic rendering layer exists in the active style. */
     private fun groupVisibility(map: MapLibreMap, ids: List<String>): Boolean? {
         val style = map.style ?: return null
-        val values = ids.map { id ->
-            style.getLayer(id)?.getVisibility()?.value ?: return null
-        }
+        if (ids.isEmpty()) return null
+        val values = ids.map { id -> style.getLayer(id)?.getVisibility()?.value ?: return@map null }
         val visible = values.count { it != Property.NONE }
         return when {
             visible == values.size -> true
@@ -160,14 +169,15 @@ object MapLayerControlBridge {
         }
     }
 
-    /** Applies the requested state only when every target layer exists, then verifies it. */
+    /** Applies the requested state only to existing traffic/POI layers, then verifies the real MapLibre state. */
     private fun setVisible(map: MapLibreMap, ids: List<String>, visible: Boolean): Boolean {
         val style = map.style ?: return false
-        if (ids.any { style.getLayer(it) == null }) return false
-        ids.forEach { id ->
+        val existingIds = ids.filter { style.getLayer(it) != null }
+        if (existingIds.isEmpty()) return false
+        existingIds.forEach { id ->
             style.getLayer(id)?.setProperties(visibility(if (visible) Property.VISIBLE else Property.NONE))
         }
-        return groupVisibility(map, ids) == visible
+        return groupVisibility(map, existingIds) == visible
     }
 
     private fun rounded(color: Int, radius: Float) = GradientDrawable().apply {
