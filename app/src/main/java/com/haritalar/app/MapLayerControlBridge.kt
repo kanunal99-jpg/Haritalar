@@ -139,12 +139,15 @@ object MapLayerControlBridge {
 
         fun refresh() {
             val state = groupVisibility(map, idsProvider())
-            isEnabled = state != null
             text = when (state) {
                 true -> "$title: Açık"
                 false -> "$title: Kapalı"
                 null -> "$title: Kullanılamıyor"
             }
+            // Keep the control actionable: traffic layers may be installed after the panel is opened.
+            // The click path resolves the current MapLibre style again, so a temporarily missing
+            // layer must not permanently disable the button.
+            isEnabled = true
         }
 
         refresh()
