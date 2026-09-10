@@ -45,6 +45,11 @@ object MapLayerControlBridge {
         })
     }
 
+    /** Explicitly retries from the activity after MapLibre style/layer installation. */
+    fun refresh(activity: Activity) {
+        if (activity is MainActivity) installWhenReady(activity)
+    }
+
     private fun installWhenReady(activity: Activity) {
         val root = activity.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0) as? ViewGroup ?: return
         val mapView = findView(root, MapView::class.java) ?: return
@@ -182,7 +187,7 @@ object MapLayerControlBridge {
         button.text = if (map.cameraPosition.tilt >= 30.0) "2D navigasyon" else "3D navigasyon"
     }
 
-    /** Traffic has two real rendering paths: the always-available TomTom raster layer and dynamically added severity layers. */
+    /** Traffic has two real rendering paths: the TomTom raster layer and dynamically added severity layers. */
     private fun trafficLayerIds(map: MapLibreMap): List<String> {
         val candidates = buildList {
             add(TOMTOM_RASTER_TRAFFIC_LAYER_ID)
