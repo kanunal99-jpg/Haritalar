@@ -1,0 +1,1 @@
+Temporary trigger for global traffic map patch. This file is removed by the patch workflow.
