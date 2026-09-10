@@ -67,6 +67,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         private const val ROUTE_LAYER = "haritalar-route-layer"
         private const val TRAFFIC_ROUTE_SOURCE_PREFIX = "haritalar-traffic-route-source-"
         private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"
+        private const val GLOBAL_TRAFFIC_SOURCE_PREFIX = "haritalar-global-traffic-source-"
+        private const val GLOBAL_TRAFFIC_LAYER_PREFIX = "haritalar-global-traffic-layer-"
+        private const val TRAFFIC_ROUTE_SOURCE_PREFIX = "haritalar-traffic-route-source-"
+        private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"
         private const val OFF_ROUTE_METERS = 60.0
         private const val REROUTE_COOLDOWN_MS = 15_000L
         private const val START_TTS = "Lanu iyi yolculuklar diler. Emniyet kemerinizi, aynalarınızı ve lastiklerinizi kontrol ediniz. Güvenli yolculuklar."
@@ -98,6 +102,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private val trafficRefreshCoordinator = TrafficRefreshCoordinator()
     private var trafficRouteOptions: List<RouteOption> = emptyList()
     private var lastTrafficByRoute: Map<String, RouteTrafficUiModel> = emptyMap()
+    private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()
+    private var mapTrafficRefreshInFlight = false
+    private var lastMapTrafficRefreshAt = 0L
     private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()
     private var ttsReady = false
     private var currentManeuvers: List<NavigationProgressEngine.Maneuver> = emptyList()
@@ -249,6 +256,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 activateLocationComponent(map, style)
                 map.addOnCameraIdleListener {
                     livePoiLayer?.scheduleRefresh(map.projection.visibleRegion.latLngBounds)
+                    refreshMapTraffic(map)
                 }
                 map.addOnMapClickListener { point ->
                     if (lastLocation == null) status.text = "Önce GPS konumu bekleniyor"
@@ -257,6 +265,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 }
                 status.text = "Harita hazır • adres ara veya haritaya dokun"
                 livePoiLayer?.scheduleRefresh(map.projection.visibleRegion.latLngBounds)
+                refreshMapTraffic(map, true)
             }
         }
         requestLocationPermission()
@@ -367,6 +376,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
         lastTrafficSegmentsByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
         navigationEngine.reset()
         routePanel.visibility = View.VISIBLE
@@ -465,6 +475,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 trafficRouteOptions = emptyList()
                 lastTrafficByRoute = emptyMap()
         lastTrafficSegmentsByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
                 locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
                 navigationButton.visibility = View.GONE
                 speak("Hedefinize ulaştınız.", true)
@@ -484,6 +495,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRefreshCoordinator.reset()
         lastTrafficByRoute = emptyMap()
         lastTrafficSegmentsByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         requestSingleRoute(location.latitude, location.longitude, target.latitude, target.longitude, "Yeniden rota", "auto") { option ->
             rerouteInFlight = false
             applyRoute(option, true)
@@ -495,6 +507,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRefreshCoordinator.reset()
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         lastTrafficSegmentsByRoute = emptyMap()
         val specs = listOf(
             Triple("En hızlı", "Hızlı rota • ücretli/feribot geçişleri kullanılabilir", "auto"),
@@ -728,6 +741,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             trafficRouteOptions = listOf(option)
             lastTrafficByRoute = emptyMap()
         lastTrafficSegmentsByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         }
         routePoints = option.points
         routeCumulativeMeters = option.cumulativeMeters
@@ -760,6 +774,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 trafficRefreshCoordinator.reset()
                 trafficRouteOptions = emptyList()
                 lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         lastTrafficSegmentsByRoute = emptyMap()
                 locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
                 routePanel.visibility = View.VISIBLE
@@ -804,6 +819,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         trafficRefreshCoordinator.reset()
         trafficRouteOptions = emptyList()
         lastTrafficByRoute = emptyMap()
+        lastTrafficSegmentsByRoute = emptyMap()
         lastTrafficSegmentsByRoute = emptyMap()
         locationComponent?.let { NavigationLocationComponentController.apply(it, false) }
         navigationButton.visibility = View.GONE
@@ -1000,6 +1016,68 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     ),
                 )
             }
+        }
+    }
+
+    private fun refreshMapTraffic(map: MapLibreMap, force: Boolean = false) {
+        if (BuildConfig.TOMTOM_API_KEY.isBlank()) return
+        if (map.cameraPosition.zoom < 11.0) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastMapTrafficRefreshAt < 60_000L) return
+        if (mapTrafficRefreshInFlight) return
+        mapTrafficRefreshInFlight = true
+        lastMapTrafficRefreshAt = now
+        val bounds = map.projection.visibleRegion.latLngBounds
+        routeExecutor.execute {
+            try {
+                val rows = if (map.cameraPosition.zoom >= 15.0) 4 else 3
+                val cols = rows
+                val segments = buildList {
+                    for (r in 0 until rows) {
+                        val y = r.toDouble() / (rows - 1).coerceAtLeast(1)
+                        for (c in 0 until cols) {
+                            val x = c.toDouble() / (cols - 1).coerceAtLeast(1)
+                            val point = GeoCoordinate(
+                                bounds.latitudeSouth + (bounds.latitudeNorth - bounds.latitudeSouth) * y,
+                                bounds.longitudeWest + (bounds.longitudeEast - bounds.longitudeWest) * x,
+                            )
+                            addAll(TrafficEngineFactory.fetchMapTrafficAtPointBlocking(point))
+                        }
+                    }
+                }.distinctBy { segment ->
+                    segment.geometry.joinToString(";") { "%.5f,%.5f".format(it.latitude, it.longitude) }
+                }
+                runOnUiThread { map.style?.let { drawGlobalTrafficSegments(it, segments) } }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Harita geneli trafik yenilemesi başarısız", e)
+            } finally {
+                mapTrafficRefreshInFlight = false
+            }
+        }
+    }
+
+    private fun drawGlobalTrafficSegments(style: Style, segments: List<TrafficSegment>) {
+        TrafficRouteMapPresentation.Severity.values().forEach { severity ->
+            val key = severity.name.lowercase(Locale.US)
+            style.removeLayer(GLOBAL_TRAFFIC_LAYER_PREFIX + key)
+            style.removeSource(GLOBAL_TRAFFIC_SOURCE_PREFIX + key)
+        }
+        TrafficRouteMapPresentation.Severity.values().forEach { severity ->
+            val features = segments.filter { TrafficRouteMapPresentation.severityOf(it) == severity }.mapNotNull { segment ->
+                if (segment.geometry.size < 2) return@mapNotNull null
+                Feature.fromGeometry(LineString.fromLngLats(segment.geometry.map { point ->
+                    org.maplibre.geojson.Point.fromLngLat(point.longitude, point.latitude)
+                }))
+            }
+            if (features.isEmpty()) return@forEach
+            val key = severity.name.lowercase(Locale.US)
+            val sourceId = GLOBAL_TRAFFIC_SOURCE_PREFIX + key
+            val layerId = GLOBAL_TRAFFIC_LAYER_PREFIX + key
+            style.addSource(GeoJsonSource(sourceId, org.maplibre.geojson.FeatureCollection.fromFeatures(features)))
+            style.addLayer(LineLayer(layerId, sourceId).withProperties(
+                lineWidth(6f),
+                lineColor(TrafficRouteMapPresentation.colorHex(severity)),
+            ))
         }
     }
 
