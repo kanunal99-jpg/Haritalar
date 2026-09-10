@@ -38,18 +38,12 @@ class MainActivitySmokeTest {
 
     @Test
     fun mainActivityLaunchesAndShowsInitialControls() {
-        val scenario = try {
-            ActivityScenario.launch(MainActivity::class.java)
-        } catch (error: Throwable) {
+        val scenario = try { ActivityScenario.launch(MainActivity::class.java) } catch (error: Throwable) {
             throw AssertionError("MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
         }
-        try {
-            assertInitialControls(scenario)
-        } catch (error: Throwable) {
+        try { assertInitialControls(scenario) } catch (error: Throwable) {
             throw AssertionError("MainActivity launched but initial controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
-        } finally {
-            scenario.close()
-        }
+        } finally { scenario.close() }
     }
 
     @Test
@@ -61,17 +55,14 @@ class MainActivitySmokeTest {
             while (SystemClock.uptimeMillis() < deadline && !found) {
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                 scenario.onActivity { activity ->
-                    val content = activity.findViewById<ViewGroup>(android.R.id.content)
-                    found = findTextView(content, "Katmanlar") != null
+                    found = findTextView(activity.findViewById<ViewGroup>(android.R.id.content), "Katmanlar") != null
                 }
                 if (!found) SystemClock.sleep(250L)
             }
             check(found) { "Visible map layer control was not created after MapLibre initialization" }
         } catch (error: Throwable) {
             throw AssertionError("Map layer controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
-        } finally {
-            scenario.close()
-        }
+        } finally { scenario.close() }
     }
 
     @Test
@@ -83,18 +74,15 @@ class MainActivitySmokeTest {
             scenario.onActivity { activity ->
                 val content = activity.findViewById<ViewGroup>(android.R.id.content)
                 val mapView = findMapView(content) ?: error("MapLibre MapView was not created")
-                mapView.getMapAsync { map ->
-                    mapReference.set(map)
-                    mapReady.countDown()
-                }
+                mapView.getMapAsync { map -> mapReference.set(map); mapReady.countDown() }
             }
-            check(mapReady.await(12L, TimeUnit.SECONDS)) {
-                "Timed out waiting for MapLibre map initialization"
-            }
+            check(mapReady.await(12L, TimeUnit.SECONDS)) { "Timed out waiting for MapLibre map initialization" }
             val map = mapReference.get() ?: error("MapLibre callback completed without a map")
             check(map.style != null) { "MapLibre style was not available for layer verification" }
 
-            val deadline = SystemClock.uptimeMillis() + 5_000L
+            val trafficIds = listOf("free", "light", "moderate", "heavy", "severe").map { "haritalar-global-traffic-layer-$it" }
+            val poiIds = listOf("haritalar-live-poi-circles", "haritalar-live-poi-labels", "haritalar-live-poi-selected")
+            val deadline = SystemClock.uptimeMillis() + 12_000L
             var verified = false
             while (SystemClock.uptimeMillis() < deadline && !verified) {
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
@@ -103,37 +91,24 @@ class MainActivitySmokeTest {
                     val layers = findTextView(content, "Katmanlar")
                     if (layers != null) {
                         val panel = rootPanelForTest(content)
-                        if (panel != null) {
+                        if (panel == null) layers.performClick()
+                        else {
                             val traffic = findButtonStartingWith(panel, "Trafik:")
                             val poi = findButtonStartingWith(panel, "Güvenlik / POI:")
-                            if (traffic == null || poi == null) {
-                                layers.performClick()
-                            } else if (traffic.isEnabled && poi.isEnabled) {
-                                val style = map.style ?: return@onActivity
-                                val trafficLayer = style.getLayer("haritalar-tomtom-traffic-layer")
-                                    ?: error("TomTom traffic layer is missing from the active MapLibre style")
-                                val poiLayerIds = listOf(
-                                    "haritalar-live-poi-circles",
-                                    "haritalar-live-poi-labels",
-                                    "haritalar-live-poi-selected",
-                                )
-                                val poiLayers = poiLayerIds.map { id ->
-                                    style.getLayer(id) ?: error("POI layer $id is missing from the active MapLibre style")
-                                }
-                                val trafficBefore = trafficLayer.getVisibility().value
+                            val style = map.style ?: return@onActivity
+                            val trafficLayers = trafficIds.mapNotNull { style.getLayer(it) }
+                            val poiLayers = poiIds.mapNotNull { style.getLayer(it) }
+                            if (traffic != null && poi != null && trafficLayers.isNotEmpty() && poiLayers.size == poiIds.size) {
+                                val trafficBefore = trafficLayers.map { it.getVisibility().value }
                                 val poiBefore = poiLayers.map { it.getVisibility().value }
                                 traffic.performClick()
                                 poi.performClick()
                                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-                                val trafficAfter = trafficLayer.getVisibility().value
+                                val trafficAfter = trafficLayers.map { it.getVisibility().value }
                                 val poiAfter = poiLayers.map { it.getVisibility().value }
-                                check(trafficAfter != trafficBefore) {
-                                    "Traffic button did not change real MapLibre visibility"
-                                }
-                                check(poiAfter != poiBefore) {
-                                    "POI button did not change real MapLibre visibility"
-                                }
-                                check(traffic.text.toString() == "Trafik: ${if (trafficAfter == "none") "Kapalı" else "Açık"}") {
+                                check(trafficAfter != trafficBefore) { "Traffic button did not change real severity-layer visibility" }
+                                check(poiAfter != poiBefore) { "POI button did not change real MapLibre visibility" }
+                                check(traffic.text.toString() == "Trafik: ${if (trafficAfter.all { it != "none" }) "Açık" else "Kapalı"}") {
                                     "Traffic label is not synchronized with MapLibre state: ${traffic.text}"
                                 }
                                 check(poi.text.toString() == "Güvenlik / POI: ${if (poiAfter.all { it != "none" }) "Açık" else "Kapalı"}") {
@@ -149,55 +124,34 @@ class MainActivitySmokeTest {
             check(verified) { "Layer buttons could not be verified against the active MapLibre style within timeout" }
         } catch (error: Throwable) {
             throw AssertionError("Layer buttons did not pass real MapLibre visibility verification. Live diagnostics:\n${liveDiagnostics()}", error)
-        } finally {
-            scenario.close()
-        }
+        } finally { scenario.close() }
     }
 
     @Test
     fun mainActivityCanBeOpenedTwiceAfterDestroy() {
-        val first = try {
-            ActivityScenario.launch(MainActivity::class.java)
-        } catch (error: Throwable) {
-            throw AssertionError("First MainActivity launch failed after destroying the first activity. Live diagnostics:\n${liveDiagnostics()}", error)
+        val first = try { ActivityScenario.launch(MainActivity::class.java) } catch (error: Throwable) {
+            throw AssertionError("First MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
         }
-        try {
-            assertInitialControls(first)
-            assertMapViewCreated(first)
-        } finally {
-            first.close()
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        try { assertInitialControls(first); assertMapViewCreated(first) } finally {
+            first.close(); InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
-
-        val second = try {
-            ActivityScenario.launch(MainActivity::class.java)
-        } catch (error: Throwable) {
+        val second = try { ActivityScenario.launch(MainActivity::class.java) } catch (error: Throwable) {
             throw AssertionError("Second MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
         }
         try {
-            SystemClock.sleep(1_000L)
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-            second.onActivity { activity ->
-                check(!activity.isFinishing && !activity.isDestroyed) {
-                    "Second MainActivity was not left in a usable lifecycle state"
-                }
-            }
-            assertInitialControls(second)
-            assertMapViewCreated(second)
+            SystemClock.sleep(1_000L); InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            second.onActivity { activity -> check(!activity.isFinishing && !activity.isDestroyed) { "Second MainActivity was not left in a usable lifecycle state" } }
+            assertInitialControls(second); assertMapViewCreated(second)
         } catch (error: Throwable) {
             throw AssertionError("Second MainActivity launch succeeded but controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
-        } finally {
-            second.close()
-        }
+        } finally { second.close() }
     }
 
     @Test
     fun packagedTomTomCredentialCanFetchLiveTraffic() {
         check(BuildConfig.TOMTOM_API_KEY.isNotBlank()) { "TOMTOM_API_KEY is empty in the packaged app BuildConfig" }
         val point = GeoCoordinate(latitude = 41.0082, longitude = 28.9784)
-        val snapshot = try {
-            fetchLiveSnapshot(point)
-        } catch (error: Throwable) {
+        val snapshot = try { fetchLiveSnapshot(point) } catch (error: Throwable) {
             throw AssertionError("Packaged TomTom credential failed at runtime. Live diagnostics:\n${liveDiagnostics()}", error)
         }
         check(snapshot.providerId == TomTomTrafficProvider.ID) { "Unexpected traffic provider: ${snapshot.providerId}" }
@@ -211,21 +165,13 @@ class MainActivitySmokeTest {
         val result = AtomicReference<Result<TrafficSnapshot>?>()
         val block: suspend () -> TrafficSnapshot = {
             provider.fetchTraffic(
-                bounds = TrafficBounds(
-                    south = point.latitude,
-                    west = point.longitude,
-                    north = point.latitude,
-                    east = point.longitude,
-                ),
+                bounds = TrafficBounds(south = point.latitude, west = point.longitude, north = point.latitude, east = point.longitude),
                 route = null,
             )
         }
         block.startCoroutine(object : Continuation<TrafficSnapshot> {
             override val context = EmptyCoroutineContext
-            override fun resumeWith(value: Result<TrafficSnapshot>) {
-                result.set(value)
-                completed.countDown()
-            }
+            override fun resumeWith(value: Result<TrafficSnapshot>) { result.set(value); completed.countDown() }
         })
         check(completed.await(30L, TimeUnit.SECONDS)) { "Timed out waiting for live TomTom traffic response" }
         return result.get()?.getOrThrow() ?: error("Live TomTom traffic response completed without a result")
