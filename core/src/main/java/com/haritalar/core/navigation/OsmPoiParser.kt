@@ -17,7 +17,8 @@ object OsmPoiParser {
             val category = categoryOf(tags) ?: NavigationPoiCategory.OTHER
             val id = "osm:${element.optString("type", "unknown")}:${element.optLong("id", -1L)}"
             if (id.endsWith(":-1")) continue
-            val name = tags.optString("name").trim().ifBlank { defaultName(category) }
+            val name = tags.optString("name").trim()
+            if (name.isBlank()) continue
 
             val street = tags.optString("addr:street").trim()
             val houseNumber = tags.optString("addr:housenumber").trim()
@@ -80,23 +81,5 @@ object OsmPoiParser {
         tags.optString("amenity") in setOf("townhall", "courthouse", "police", "fire_station", "post_office", "library", "community_centre") -> NavigationPoiCategory.PUBLIC_INSTITUTION
         tags.optString("office") in setOf("government", "administrative") || tags.has("government") -> NavigationPoiCategory.PUBLIC_INSTITUTION
         else -> null
-    }
-
-    private fun defaultName(category: NavigationPoiCategory): String = when (category) {
-        NavigationPoiCategory.TRAFFIC_SIGNAL -> "Trafik ışığı"
-        NavigationPoiCategory.SPEED_CAMERA -> "Hız kamerası / radar"
-        NavigationPoiCategory.TRAM -> "Tramvay noktası"
-        NavigationPoiCategory.RAILWAY -> "Tren / metro istasyonu"
-        NavigationPoiCategory.FUEL -> "Benzin istasyonu"
-        NavigationPoiCategory.PLACE_OF_WORSHIP -> "Cami / ibadethane"
-        NavigationPoiCategory.PARKING -> "Otopark"
-        NavigationPoiCategory.MARKET -> "Market / AVM"
-        NavigationPoiCategory.RESTAURANT -> "Restoran"
-        NavigationPoiCategory.CAFE -> "Kafe"
-        NavigationPoiCategory.PHARMACY -> "Eczane"
-        NavigationPoiCategory.HOSPITAL -> "Hastane"
-        NavigationPoiCategory.SCHOOL -> "Okul"
-        NavigationPoiCategory.TRANSIT -> "Toplu taşıma durağı"
-        else -> category.name.lowercase().replace('_', ' ').replaceFirstChar { it.titlecase() }
     }
 }
