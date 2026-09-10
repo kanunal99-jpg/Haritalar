@@ -57,6 +57,7 @@ class LiveNavigationPoiLayer(
         private const val DEBOUNCE_MS = 900L
         private const val MIN_REFRESH_MS = 5_000L
         private const val MAX_RESULTS = 1000
+        private const val CRITICAL_CATEGORY_LIMIT = 250
         private const val TAG = "LiveNavigationPoi"
     }
 
@@ -109,7 +110,6 @@ class LiveNavigationPoiLayer(
                             Expression.literal("PEDESTRIAN_CROSSING"), Expression.literal("#FBC02D"),
                             Expression.literal("SCHOOL"), Expression.literal("#1565C0"),
                             Expression.literal("FOREST"), Expression.literal("#2E7D32"),
-                            Expression.literal("FUEL"), Expression.literal("#F57C00"),
                             Expression.literal("PLACE_OF_WORSHIP"), Expression.literal("#1565C0"),
                             Expression.literal("RAILWAY"), Expression.literal("#424242"),
                             Expression.literal("TRAM"), Expression.literal("#00897B"),
@@ -225,21 +225,50 @@ class LiveNavigationPoiLayer(
         lastRefreshAt = now
         executor.execute {
             try {
-                val query = OsmPoiQuery.build(south, west, north, east, MAX_RESULTS)
-                val connection = (URL(OsmPoiQuery.endpoint()).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"; connectTimeout = 8_000; readTimeout = 15_000; doOutput = true
-                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                    setRequestProperty("User-Agent", "Haritalar/1.0 (open-source navigation app)")
+                val criticalCategories = listOf(
+                    NavigationPoiCategory.TRAFFIC_SIGNAL,
+                    NavigationPoiCategory.SPEED_CAMERA,
+                    NavigationPoiCategory.PEDESTRIAN_CROSSING,
+                    NavigationPoiCategory.SCHOOL,
+                    NavigationPoiCategory.FOREST,
+                )
+                val criticalPois = criticalCategories.flatMap { category ->
+                    fetchPoiQuery(
+                        OsmPoiQuery.buildForCategory(south, west, north, east, category, CRITICAL_CATEGORY_LIMIT),
+                        CRITICAL_CATEGORY_LIMIT,
+                    )
                 }
-                connection.outputStream.use { it.write(("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8)) }
-                val code = connection.responseCode
-                if (code !in 200..299) error("Overpass HTTP $code")
-                val body = connection.inputStream.bufferedReader().use { it.readText() }
-                val pois = OsmPoiParser.parse(body, MAX_RESULTS)
+                val generalPois = fetchPoiQuery(
+                    OsmPoiQuery.build(south, west, north, east, MAX_RESULTS),
+                    MAX_RESULTS,
+                )
+                val pois = (criticalPois + generalPois).distinctBy { it.id }
                 mainHandler.post { updateSource(pois) }
             } catch (e: Exception) {
                 Log.w(TAG, "POI yenileme başarısız; son başarılı set korunuyor", e)
             }
+        }
+    }
+
+    private fun fetchPoiQuery(query: String, limit: Int): List<NavigationPoi> {
+        val connection = (URL(OsmPoiQuery.endpoint()).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 8_000
+            readTimeout = 15_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            setRequestProperty("User-Agent", "Haritalar/1.0 (open-source navigation app)")
+        }
+        return try {
+            connection.outputStream.use {
+                it.write(("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray(Charsets.UTF_8))
+            }
+            val code = connection.responseCode
+            if (code !in 200..299) error("Overpass HTTP $code")
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            OsmPoiParser.parse(body, limit)
+        } finally {
+            connection.disconnect()
         }
     }
 
