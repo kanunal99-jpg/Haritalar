@@ -37,6 +37,7 @@ class HaritalarApplication : Application() {
         super.onCreate()
         SafetyAlertLifecycleBridge.install(this)
         SafetyReportUiBridge.install(this)
+        MapLayerControlBridge.install(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 postActivityTask(activity, Runnable { configureMapBrowse(activity) })
