@@ -115,8 +115,9 @@ class TrafficRouteRankingService(
         val rankingBlock: suspend () -> List<TrafficRouteRanking.RankedCandidate> = { rank(routes, nowEpochMs) }
         rankingBlock.startCoroutine(object : Continuation<List<TrafficRouteRanking.RankedCandidate>> {
             override val context = EmptyCoroutineContext
-            override fun resumeWith(result: Result<List<TrafficRouteRanking.RankedCandidate>>) {
-                this@TrafficRouteRankingServiceResultHolder.resume(result)
+            override fun resumeWith(value: Result<List<TrafficRouteRanking.RankedCandidate>>) {
+                result.set(value)
+                completed.countDown()
             }
         })
         if (!completed.await(timeoutMs, TimeUnit.MILLISECONDS)) {
