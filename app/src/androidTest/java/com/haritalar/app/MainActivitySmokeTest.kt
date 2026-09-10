@@ -80,7 +80,10 @@ class MainActivitySmokeTest {
             val map = mapReference.get() ?: error("MapLibre callback completed without a map")
             check(map.style != null) { "MapLibre style was not available for layer verification" }
 
-            val trafficIds = listOf("free", "light", "moderate", "heavy", "severe").map { "haritalar-global-traffic-layer-$it" }
+            val trafficIds = buildList {
+                add("haritalar-tomtom-traffic-layer")
+                listOf("free", "light", "moderate", "heavy", "severe").forEach { add("haritalar-global-traffic-layer-$it") }
+            }
             val poiIds = listOf("haritalar-live-poi-circles", "haritalar-live-poi-labels", "haritalar-live-poi-selected")
             val deadline = SystemClock.uptimeMillis() + 12_000L
             var verified = false
@@ -106,7 +109,7 @@ class MainActivitySmokeTest {
                                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                                 val trafficAfter = trafficLayers.map { it.getVisibility().value }
                                 val poiAfter = poiLayers.map { it.getVisibility().value }
-                                check(trafficAfter != trafficBefore) { "Traffic button did not change real severity-layer visibility" }
+                                check(trafficAfter != trafficBefore) { "Traffic button did not change real traffic-layer visibility" }
                                 check(poiAfter != poiBefore) { "POI button did not change real MapLibre visibility" }
                                 check(traffic.text.toString() == "Trafik: ${if (trafficAfter.all { it != "none" }) "Açık" else "Kapalı"}") {
                                     "Traffic label is not synchronized with MapLibre state: ${traffic.text}"
