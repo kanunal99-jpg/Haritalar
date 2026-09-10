@@ -62,7 +62,7 @@ object MapLayerControlBridge {
         startedAt: Long,
     ) {
         if (root.findViewWithTag<View>(CONTROL_TAG) != null) return
-        if (!activity.isFinishing && !activity.isDestroyed && map.style != null) {
+        if (!activity.isFinishing && !activity.isDestroyed && controlsHaveRequiredLayers(map)) {
             addControls(activity, root, map)
             return
         }
@@ -72,6 +72,16 @@ object MapLayerControlBridge {
             { waitForStyleAndAddControls(activity, root, map, startedAt) },
             STYLE_WAIT_INTERVAL_MS,
         )
+    }
+
+    /** Do not expose controls until MainActivity has installed the actual layers they control. */
+    private fun controlsHaveRequiredLayers(map: MapLibreMap): Boolean {
+        val style = map.style ?: return false
+        val poiReady = listOf(POI_LAYER_ID, POI_LABEL_LAYER_ID, POI_SELECTED_LAYER_ID)
+            .all { style.getLayer(it) != null }
+        val trafficReady = style.getLayer(TOMTOM_RASTER_TRAFFIC_LAYER_ID) != null ||
+            TRAFFIC_SEVERITY_LAYER_IDS.any { style.getLayer(TRAFFIC_LAYER_PREFIX + it) != null }
+        return poiReady && trafficReady
     }
 
     private fun addControls(activity: Activity, root: ViewGroup, map: MapLibreMap) {
