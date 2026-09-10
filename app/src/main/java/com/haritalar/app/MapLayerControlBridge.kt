@@ -17,10 +17,10 @@ import org.maplibre.android.style.layers.PropertyFactory.visibility
 
 /** Visible map controls for traffic, safety/POI overlays and navigation camera mode. */
 object MapLayerControlBridge {
-    private const val TRAFFIC_LAYER_ID = "haritalar-global-traffic-layer"
-    private const val POI_LAYER_ID = "haritalar-live-poi-layer"
-    private const val POI_LABEL_LAYER_ID = "haritalar-live-poi-label-layer"
-    private const val POI_SELECTED_LAYER_ID = "haritalar-selected-poi-layer"
+    private const val TRAFFIC_LAYER_ID = "haritalar-tomtom-traffic-layer"
+    private const val POI_LAYER_ID = "haritalar-live-poi-circles"
+    private const val POI_LABEL_LAYER_ID = "haritalar-live-poi-labels"
+    private const val POI_SELECTED_LAYER_ID = "haritalar-live-poi-selected"
     private const val CONTROL_TAG = "haritalar-layer-controls"
     private const val PANEL_TAG = "haritalar-layer-panel"
 
@@ -41,10 +41,9 @@ object MapLayerControlBridge {
     private fun installWhenReady(activity: Activity) {
         val root = activity.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0) ?: return
         val mapView = findView(root, MapView::class.java) ?: return
-        if (root is ViewGroup && root.findViewWithTag<View>(CONTROL_TAG) != null) return
+        if (root.findViewWithTag<View>(CONTROL_TAG) != null) return
         mapView.getMapAsync { map ->
-            if (root !is ViewGroup || root.findViewWithTag<View>(CONTROL_TAG) != null) return@getMapAsync
-            addControls(activity, root, map)
+            if (root.findViewWithTag<View>(CONTROL_TAG) == null) addControls(activity, root, map)
         }
     }
 
@@ -90,7 +89,7 @@ object MapLayerControlBridge {
             listOf(POI_LAYER_ID, POI_LABEL_LAYER_ID, POI_SELECTED_LAYER_ID).forEach { setVisible(map, it, visible) }
         }
         val camera = Button(activity).apply {
-            text = "3D navigasyon"
+            text = if (map.cameraPosition.tilt >= 30.0) "2D navigasyon" else "3D navigasyon"
             setAllCaps(false)
             textSize = 12f
             setOnClickListener {
