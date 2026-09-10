@@ -20,12 +20,39 @@ class TrafficRouteRankingService(
     suspend fun rank(
         routes: List<TrafficRouteRanking.RouteCandidate>,
         nowEpochMs: Long = System.currentTimeMillis(),
-    ): List<TrafficRouteRanking.RankedCandidate> = rankDetailed(routes, nowEpochMs).ranked
+    ): List<TrafficRouteRanking.RankedCandidate> = rankDetailedSuspend(routes, nowEpochMs).ranked
 
-    /** Exposes only provider segments that were actually geometry-matched to a route. */
-    suspend fun rankDetailed(
+    /**
+     * Blocking bridge for Android UI/executor callers that are not suspend functions.
+     * The actual provider/ranking pipeline remains suspend-based and is executed once.
+     */
+    fun rankDetailed(
         routes: List<TrafficRouteRanking.RouteCandidate>,
         nowEpochMs: Long = System.currentTimeMillis(),
+        timeoutMs: Long = DEFAULT_BLOCKING_TIMEOUT_MS,
+    ): DetailedResult {
+        require(timeoutMs > 0L) { "timeoutMs must be positive" }
+        val completed = CountDownLatch(1)
+        val result = AtomicReference<Result<DetailedResult>?>()
+        val rankingBlock: suspend () -> DetailedResult = { rankDetailedSuspend(routes, nowEpochMs) }
+        rankingBlock.startCoroutine(object : Continuation<DetailedResult> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(value: Result<DetailedResult>) {
+                result.set(value)
+                completed.countDown()
+            }
+        })
+        if (!completed.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw IllegalStateException("Detailed traffic ranking timed out after ${timeoutMs}ms")
+        }
+        return result.get()?.getOrThrow()
+            ?: throw IllegalStateException("Detailed traffic ranking completed without a result")
+    }
+
+    /** Suspend implementation shared by the public suspend and blocking bridges. */
+    private suspend fun rankDetailedSuspend(
+        routes: List<TrafficRouteRanking.RouteCandidate>,
+        nowEpochMs: Long,
     ): DetailedResult {
         if (routes.isEmpty()) return DetailedResult(emptyList(), emptyMap())
         val allCoordinates = routes.flatMap { it.coordinates }.filter(::validCoordinate)
