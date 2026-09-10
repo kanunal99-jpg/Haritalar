@@ -108,11 +108,24 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
+      - name: Verify debug APK SHA-256
+        run: |
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app-debug.apk.sha256
+          stat --format='APK size: %s bytes' app/build/outputs/apk/debug/app-debug.apk
+
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: haritalar-debug-apk-${{ github.run_number }}
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload debug APK checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: haritalar-debug-apk-checksum-${{ github.run_number }}
+          path: app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 90
 
