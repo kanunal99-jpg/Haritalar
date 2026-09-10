@@ -49,7 +49,7 @@ class TrafficRouteRankingServiceTest {
                 override val id = "failing"
                 override val priority = 1
                 override fun supports(coordinate: GeoCoordinate) = true
-                override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?) =
+                override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?): TrafficSnapshot =
                     error("network failure")
             })),
         )
@@ -79,7 +79,7 @@ class TrafficRouteRankingServiceTest {
                 override val id = "test-live"
                 override val priority = 10
                 override fun supports(coordinate: GeoCoordinate) = true
-                override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?) =
+                override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?): TrafficSnapshot =
                     TrafficSnapshot(
                         providerId = id,
                         segments = listOf(
@@ -113,7 +113,7 @@ class TrafficRouteRankingServiceTest {
                 override val priority = 10
                 override fun supports(coordinate: GeoCoordinate) = true
                 override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?): TrafficSnapshot {
-                    val point = route?.coordinates?.singleOrNull()
+                    val point = route?.coordinates?.firstOrNull()
                     calls += "${point?.latitude},${point?.longitude}"
                     val geometry = when {
                         point?.latitude == 41.0 -> listOf(GeoCoordinate(41.0, 29.0), GeoCoordinate(41.01, 29.01))
@@ -144,6 +144,8 @@ class TrafficRouteRankingServiceTest {
         val result = runSuspend { service.rank(listOf(routeA, routeB), nowEpochMs = 1_000L) }
 
         assertEquals(2, calls.size)
+        assertTrue(calls.contains("41.0,29.0"))
+        assertTrue(calls.contains("41.02,29.0"))
         assertTrue(result.all { it.trafficApplied })
         assertTrue(result.all { it.adjustedDurationSeconds > it.baseDurationSeconds })
     }
