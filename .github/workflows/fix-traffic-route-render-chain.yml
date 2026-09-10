@@ -1,0 +1,131 @@
+name: Fix verified traffic route rendering
+
+on:
+  push:
+    paths:
+      - .github/workflows/fix-traffic-route-render-chain.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Apply source fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          main = Path("app/src/main/java/com/haritalar/app/MainActivity.kt")
+          text = main.read_text()
+
+          old = '    private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()\n'
+          new = old + '    private var activeRouteSignature: String = ""\n'
+          if old not in text:
+              raise SystemExit("active route field anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = '        lastTrafficSegmentsByRoute = emptyMap()\n        locationComponent?.let { NavigationLocationComponentController.apply(it, false) }\n'
+          new = '        lastTrafficSegmentsByRoute = emptyMap()\n        activeRouteSignature = ""\n        locationComponent?.let { NavigationLocationComponentController.apply(it, false) }\n'
+          if old not in text:
+              raise SystemExit("destination reset anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = '        routePoints = option.points\n        routeCumulativeMeters = option.cumulativeMeters\n'
+          new = '        routePoints = option.points\n        routeCumulativeMeters = option.cumulativeMeters\n        activeRouteSignature = routeSignature(option)\n'
+          if old not in text:
+              raise SystemExit("apply route signature anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    private fun routeSignatureForCurrentRoute(): String =
+        if (routePoints.isEmpty()) "" else routeSignature(
+            RouteOption(
+                title = "",
+                subtitle = "",
+                points = routePoints,
+                cumulativeMeters = routeCumulativeMeters,
+                totalMeters = routeTotalMeters,
+                distanceKm = routeTotalMeters / 1000.0,
+                durationSeconds = 0.0,
+                toll = false,
+                tollAmountTry = null,
+                tollName = null,
+                ferryUsed = false,
+                maneuvers = currentManeuvers,
+            ),
+        )
+'''
+          new = '''    private fun routeSignatureForCurrentRoute(): String =
+        activeRouteSignature.ifBlank {
+            if (routePoints.isEmpty()) "" else routeSignature(
+                RouteOption(
+                    title = "",
+                    subtitle = "",
+                    points = routePoints,
+                    cumulativeMeters = routeCumulativeMeters,
+                    totalMeters = routeTotalMeters,
+                    distanceKm = routeTotalMeters / 1000.0,
+                    durationSeconds = 0.0,
+                    toll = false,
+                    tollAmountTry = null,
+                    tollName = null,
+                    ferryUsed = false,
+                    maneuvers = currentManeuvers,
+                ),
+            )
+        }
+'''
+          if old not in text:
+              raise SystemExit("current route signature function not found")
+          text = text.replace(old, new, 1)
+
+          old = '        lastTrafficSegmentsByRoute = emptyMap()\n        locationComponent?.let { NavigationLocationComponentController.apply(it, false) }\n        navigationButton.visibility = View.GONE\n'
+          new = '        lastTrafficSegmentsByRoute = emptyMap()\n        activeRouteSignature = ""\n        locationComponent?.let { NavigationLocationComponentController.apply(it, false) }\n        navigationButton.visibility = View.GONE\n'
+          if old not in text:
+              raise SystemExit("stop navigation reset anchor not found")
+          text = text.replace(old, new, 1)
+
+          main.write_text(text)
+
+          service = Path("core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteRankingService.kt")
+          text = service.read_text()
+          old = '                    route = TrafficRoute(points),\n'
+          new = '                    route = TrafficRoute(route.coordinates),\n'
+          if old not in text:
+              raise SystemExit("full route traffic sampling anchor not found")
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              '    /**\n     * Each alternative gets its own bounded multi-point observation. TomTom Flow\n     * Segment Data is point-based, so a single midpoint can miss the road segment\n     * actually driven by the route. Four evenly distributed points materially\n     * improve coverage while keeping the provider request count bounded.\n     */',
+              '    /**\n     * Each alternative gets its own bounded multi-point observation. TomTom Flow\n     * Segment Data is point-based, so sparse route samples can miss the road\n     * segment actually driven by the route. The provider receives the full route\n     * and applies its own bounded evenly distributed sampling.\n     */',
+              1,
+          )
+          service.write_text(text)
+
+          test = Path("core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteRankingServiceDetailedTest.kt")
+          text = test.read_text()
+          marker = '''        val result = runSuspend { service.rankDetailed(listOf(route), nowEpochMs = 2_000L) }\n'''
+          replacement = '''        val result = runSuspend { service.rankDetailed(listOf(route), nowEpochMs = 2_000L) }\n'''
+          if marker not in text:
+              raise SystemExit("detailed test marker not found")
+          test.write_text(text)
+          PY
+
+      - name: Verify diff
+        run: |
+          git diff --check
+          git diff -- app/src/main/java/com/haritalar/app/MainActivity.kt core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteRankingService.kt
+
+      - name: Commit source fix and remove one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/haritalar/app/MainActivity.kt core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteRankingService.kt core/src/test/kotlin/com/haritalar/core/traffic/TrafficRouteRankingServiceDetailedTest.kt
+          git rm .github/workflows/fix-traffic-route-render-chain.yml
+          git commit -m "fix(traffic): keep active route identity for live segment colors"
+          git push origin main
