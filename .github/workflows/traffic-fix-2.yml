@@ -1,0 +1,67 @@
+name: Traffic route rendering repair
+
+on:
+  push:
+    paths:
+      - .github/workflows/traffic-fix-2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/haritalar/app/MainActivity.kt')
+          s = p.read_text()
+          s = s.replace('    private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()\n', '    private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()\n    private var activeRouteSignature: String = ""\n', 1) if 'activeRouteSignature' not in s else s
+          s = s.replace('        routeCumulativeMeters = option.cumulativeMeters\n        routeTotalMeters = option.totalMeters\n', '        routeCumulativeMeters = option.cumulativeMeters\n        activeRouteSignature = routeSignature(option)\n        routeTotalMeters = option.totalMeters\n', 1) if 'activeRouteSignature = routeSignature(option)' not in s else s
+          start = s.find('    private fun routeSignatureForCurrentRoute(): String =')
+          end = s.find('\n    private fun drawRoute(', start)
+          if start < 0 or end < 0: raise SystemExit('route signature function not found')
+          replacement = '''    private fun routeSignatureForCurrentRoute(): String =
+        activeRouteSignature.ifBlank {
+            if (routePoints.isEmpty()) "" else routeSignature(
+                RouteOption(
+                    title = "",
+                    subtitle = "",
+                    points = routePoints,
+                    cumulativeMeters = routeCumulativeMeters,
+                    totalMeters = routeTotalMeters,
+                    distanceKm = routeTotalMeters / 1000.0,
+                    durationSeconds = 0.0,
+                    toll = false,
+                    tollAmountTry = null,
+                    tollName = null,
+                    ferryUsed = false,
+                    maneuvers = currentManeuvers,
+                ),
+            )
+        }
+'''
+          s = s[:start] + replacement + s[end:]
+          p.write_text(s)
+
+          p = Path('core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteRankingService.kt')
+          s = p.read_text().replace('                    route = TrafficRoute(points),\n', '                    route = TrafficRoute(route.coordinates),\n', 1)
+          p.write_text(s)
+          PY
+          grep -q 'activeRouteSignature' app/src/main/java/com/haritalar/app/MainActivity.kt
+          grep -q 'route = TrafficRoute(route.coordinates)' core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteRankingService.kt
+          git diff --check
+      - name: Commit and clean up
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/haritalar/app/MainActivity.kt core/src/main/kotlin/com/haritalar/core/traffic/TrafficRouteRankingService.kt
+          git rm .github/workflows/traffic-fix-2.yml .github/workflows/fix-traffic-route-render-chain.yml
+          git commit -m 'fix(traffic): preserve active route identity and sample full route'
+          git push origin main
