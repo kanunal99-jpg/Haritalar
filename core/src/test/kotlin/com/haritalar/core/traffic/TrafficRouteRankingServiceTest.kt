@@ -104,6 +104,50 @@ class TrafficRouteRankingServiceTest {
         assertFalse(result.any { it.adjustedDurationSeconds < it.baseDurationSeconds })
     }
 
+    @Test
+    fun eachRouteGetsItsOwnTrafficObservation() {
+        val calls = mutableListOf<String>()
+        val service = TrafficRouteRankingService(
+            TrafficProviderChain(listOf(object : TrafficProvider {
+                override val id = "route-local-live"
+                override val priority = 10
+                override fun supports(coordinate: GeoCoordinate) = true
+                override suspend fun fetchTraffic(bounds: TrafficBounds, route: TrafficRoute?): TrafficSnapshot {
+                    val point = route?.coordinates?.singleOrNull()
+                    calls += "${point?.latitude},${point?.longitude}"
+                    val geometry = when {
+                        point?.latitude == 41.01 -> listOf(GeoCoordinate(41.0, 29.0), GeoCoordinate(41.01, 29.01))
+                        point?.latitude == 41.02 -> listOf(GeoCoordinate(41.02, 29.0), GeoCoordinate(41.02, 29.02))
+                        else -> emptyList()
+                    }
+                    return TrafficSnapshot(
+                        providerId = id,
+                        segments = geometry.takeIf { it.size >= 2 }?.let {
+                            listOf(
+                                TrafficSegment(
+                                    id = "segment-${point?.latitude}",
+                                    speedKmh = 20.0,
+                                    freeFlowSpeedKmh = 60.0,
+                                    confidence = TrafficConfidence.HIGH,
+                                    geometry = it,
+                                ),
+                            )
+                        }.orEmpty(),
+                        fetchedAtEpochMs = 900L,
+                        expiresAtEpochMs = 2_000L,
+                        confidence = TrafficConfidence.HIGH,
+                    )
+                }
+            })),
+        )
+
+        val result = runSuspend { service.rank(listOf(routeA, routeB), nowEpochMs = 1_000L) }
+
+        assertEquals(2, calls.size)
+        assertTrue(result.all { it.trafficApplied })
+        assertTrue(result.all { it.adjustedDurationSeconds > it.baseDurationSeconds })
+    }
+
     private fun <T> runSuspend(block: suspend () -> T): T {
         var value: Result<T>? = null
         block.startCoroutine(object : Continuation<T> {
