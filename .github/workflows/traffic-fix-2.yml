@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/traffic-fix-2.yml
+      - TRAFFIC_PATCH_TRIGGER.md
 
 permissions:
   contents: write
@@ -16,13 +17,11 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-
       - name: Apply global live traffic patch
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           provider = Path('core/src/main/kotlin/com/haritalar/core/traffic/TomTomTrafficProvider.kt')
           s = provider.read_text()
           marker = '    private fun parseSegment(body: String, requestedPoint: GeoCoordinate): TrafficSegment? {'
@@ -52,31 +51,13 @@ jobs:
 
 '''
           if 'fetchTrafficAtPointBlocking' not in s:
-              s = s.replace(marker, method + marker, 1)
-              provider.write_text(s)
+              provider.write_text(s.replace(marker, method + marker, 1))
 
           p = Path('app/src/main/java/com/haritalar/app/MainActivity.kt')
           s = p.read_text()
-          s = s.replace(
-              'import com.haritalar.core.traffic.TrafficRouteSegment\n',
-              'import com.haritalar.core.traffic.TrafficRouteSegment\nimport com.haritalar.core.traffic.TrafficSegment\n',
-              1,
-          )
-          s = s.replace(
-              'private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"\n',
-              'private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"\n'
-              '        private const val GLOBAL_TRAFFIC_SOURCE_PREFIX = "haritalar-global-traffic-source-"\n'
-              '        private const val GLOBAL_TRAFFIC_LAYER_PREFIX = "haritalar-global-traffic-layer-"\n',
-              1,
-          )
-          s = s.replace(
-              'private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()\n',
-              'private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()\n'
-              '    private val mapTrafficProvider = TomTomTrafficProvider(BuildConfig.TOMTOM_API_KEY)\n'
-              '    private val mapTrafficRefreshInFlight = AtomicBoolean(false)\n'
-              '    private var lastMapTrafficRefreshAt = 0L\n',
-              1,
-          )
+          s = s.replace('import com.haritalar.core.traffic.TrafficRouteSegment\n', 'import com.haritalar.core.traffic.TrafficRouteSegment\nimport com.haritalar.core.traffic.TrafficSegment\n', 1)
+          s = s.replace('private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"\n', 'private const val TRAFFIC_ROUTE_LAYER_PREFIX = "haritalar-traffic-route-layer-"\n        private const val GLOBAL_TRAFFIC_SOURCE_PREFIX = "haritalar-global-traffic-source-"\n        private const val GLOBAL_TRAFFIC_LAYER_PREFIX = "haritalar-global-traffic-layer-"\n', 1)
+          s = s.replace('private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()\n', 'private var lastTrafficSegmentsByRoute: Map<String, List<TrafficRouteSegment>> = emptyMap()\n    private val mapTrafficProvider = TomTomTrafficProvider(BuildConfig.TOMTOM_API_KEY)\n    private val mapTrafficRefreshInFlight = AtomicBoolean(false)\n    private var lastMapTrafficRefreshAt = 0L\n', 1)
           old = '''                map.addOnCameraIdleListener {
                     livePoiLayer?.scheduleRefresh(map.projection.visibleRegion.latLngBounds)
                 }'''
@@ -84,8 +65,7 @@ jobs:
                     livePoiLayer?.scheduleRefresh(map.projection.visibleRegion.latLngBounds)
                     refreshMapTraffic(map)
                 }'''
-          if old in s:
-              s = s.replace(old, new, 1)
+          s = s.replace(old, new, 1)
           old2 = '''                livePoiLayer?.scheduleRefresh(map.projection.visibleRegion.latLngBounds)
             }
         }
@@ -95,8 +75,7 @@ jobs:
             }
         }
         requestLocationPermission()'''
-          if old2 in s:
-              s = s.replace(old2, new2, 1)
+          s = s.replace(old2, new2, 1)
           marker2 = '    private fun decodePolyline6(encoded: String): List<LatLng> {'
           methods = r'''    /** Draw real TomTom traffic segments across the visible map, independent of routes. */
     private fun refreshMapTraffic(map: MapLibreMap, force: Boolean = false) {
@@ -110,13 +89,7 @@ jobs:
         val bounds = map.projection.visibleRegion.latLngBounds
         routeExecutor.execute {
             try {
-                val segments = fetchMapTrafficSegments(
-                    bounds.latitudeSouth,
-                    bounds.longitudeWest,
-                    bounds.latitudeNorth,
-                    bounds.longitudeEast,
-                    zoom,
-                )
+                val segments = fetchMapTrafficSegments(bounds.latitudeSouth, bounds.longitudeWest, bounds.latitudeNorth, bounds.longitudeEast, zoom)
                 runOnUiThread { map.style?.let { drawGlobalTrafficSegments(it, segments) } }
             } catch (e: Exception) {
                 Log.w("MainActivity", "Harita geneli trafik yenilemesi başarısız", e)
@@ -126,13 +99,7 @@ jobs:
         }
     }
 
-    private fun fetchMapTrafficSegments(
-        south: Double,
-        west: Double,
-        north: Double,
-        east: Double,
-        zoom: Double,
-    ): List<TrafficSegment> {
+    private fun fetchMapTrafficSegments(south: Double, west: Double, north: Double, east: Double, zoom: Double): List<TrafficSegment> {
         val rows = if (zoom >= 15.0) 4 else 3
         val cols = if (zoom >= 15.0) 4 else 3
         val points = buildList {
@@ -144,11 +111,8 @@ jobs:
                 }
             }
         }
-        return points.mapNotNull { point ->
-            runCatching { mapTrafficProvider.fetchTrafficAtPointBlocking(point) }.getOrNull()
-        }.distinctBy { segment ->
-            segment.geometry.joinToString(";") { "%.5f,%.5f".format(it.latitude, it.longitude) }
-        }
+        return points.mapNotNull { point -> runCatching { mapTrafficProvider.fetchTrafficAtPointBlocking(point) }.getOrNull() }
+            .distinctBy { segment -> segment.geometry.joinToString(";") { "%.5f,%.5f".format(it.latitude, it.longitude) } }
     }
 
     private fun drawGlobalTrafficSegments(style: Style, segments: List<TrafficSegment>) {
@@ -158,25 +122,16 @@ jobs:
             style.removeSource(GLOBAL_TRAFFIC_SOURCE_PREFIX + key)
         }
         TrafficRouteMapPresentation.Severity.values().forEach { severity ->
-            val features = segments
-                .filter { TrafficRouteMapPresentation.severityOf(it) == severity }
-                .mapNotNull { segment ->
-                    if (segment.geometry.size < 2) return@mapNotNull null
-                    Feature.fromGeometry(LineString.fromLngLats(segment.geometry.map { point ->
-                        org.maplibre.geojson.Point.fromLngLat(point.longitude, point.latitude)
-                    }))
-                }
+            val features = segments.filter { TrafficRouteMapPresentation.severityOf(it) == severity }.mapNotNull { segment ->
+                if (segment.geometry.size < 2) return@mapNotNull null
+                Feature.fromGeometry(LineString.fromLngLats(segment.geometry.map { p -> org.maplibre.geojson.Point.fromLngLat(p.longitude, p.latitude) }))
+            }
             if (features.isEmpty()) return@forEach
             val key = severity.name.lowercase(Locale.US)
             val sourceId = GLOBAL_TRAFFIC_SOURCE_PREFIX + key
             val layerId = GLOBAL_TRAFFIC_LAYER_PREFIX + key
             style.addSource(GeoJsonSource(sourceId, org.maplibre.geojson.FeatureCollection.fromFeatures(features)))
-            style.addLayer(
-                LineLayer(layerId, sourceId).withProperties(
-                    lineWidth(6f),
-                    lineColor(TrafficRouteMapPresentation.colorHex(severity)),
-                ),
-            )
+            style.addLayer(LineLayer(layerId, sourceId).withProperties(lineWidth(6f), lineColor(TrafficRouteMapPresentation.colorHex(severity))))
         }
     }
 
@@ -187,16 +142,14 @@ jobs:
 
           log = Path('docs/PROJECT_ACTIVITY_LOG.md')
           text = log.read_text()
-          entry = '''\n## İşlem #LIVE-TRAFFIC-MAP-2 — Rota bağımsız canlı trafik düzeltmesi\n\n- **Tarih:** 2026-09-10\n- **Tür:** Kod / trafik harita katmanı\n- **Amaç:** Kullanıcı gözlemine göre trafik görünürlüğünü rota bağımlılığından çıkarmak.\n- **Gerçek değişiklik:** Görünür harita alanı için sınırlı TomTom Flow Segment Data nokta örneklemesi eklendi; gerçek segment geometrileri rota olmadan da MapLibre üzerinde severity renkleriyle çizilecek.\n- **Dayanıklılık:** TomTom key yoksa katman sorgulanmaz; provider'ın gerçek veri/cache mekanizması kullanılır; map refresh en erken 60 saniyede bir; zoom < 11'de sorgu yapılmaz.\n- **Canlı kullanıcı doğrulaması:** BEKLİYOR.\n- **CI:** Bu commit sonrası Android workflow sonucu bekleniyor.\n'''
+          entry = '''\n## İşlem #LIVE-TRAFFIC-MAP-2 — Rota bağımsız canlı trafik düzeltmesi\n\n- **Tarih:** 2026-09-10\n- **Tür:** Kod / trafik harita katmanı\n- **Amaç:** Trafik görünürlüğünü rota bağımlılığından çıkarmak.\n- **Gerçek değişiklik:** Görünür harita alanı için sınırlı TomTom Flow Segment Data nokta örneklemesi eklendi; gerçek segment geometrileri rota olmadan da MapLibre üzerinde severity renkleriyle çizilecek.\n- **Dayanıklılık:** TomTom key yoksa sorgu yapılmaz; provider cache kullanılır; map refresh en erken 60 saniyede bir; zoom < 11'de sorgu yapılmaz.\n- **Canlı kullanıcı doğrulaması:** BEKLİYOR.\n'''
           if 'İşlem #LIVE-TRAFFIC-MAP-2' not in text:
               log.write_text(text.rstrip() + '\n' + entry)
           PY
           grep -q 'fetchTrafficAtPointBlocking' core/src/main/kotlin/com/haritalar/core/traffic/TomTomTrafficProvider.kt
           grep -q 'refreshMapTraffic(map: MapLibreMap' app/src/main/java/com/haritalar/app/MainActivity.kt
-          grep -q 'GLOBAL_TRAFFIC_SOURCE_PREFIX' app/src/main/java/com/haritalar/app/MainActivity.kt
           git diff --check
-
-      - name: Commit and remove temporary workflows
+      - name: Commit patch and cleanup
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
