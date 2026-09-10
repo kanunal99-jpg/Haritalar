@@ -6,38 +6,18 @@ object OsmPoiQuery {
 
     fun endpoint(): String = OVERPASS_ENDPOINT
 
-    fun build(
-        south: Double,
-        west: Double,
-        north: Double,
-        east: Double,
-        limit: Int = 300,
-    ): String = buildInternal(south, west, north, east, limit, null)
+    fun build(south: Double, west: Double, north: Double, east: Double, limit: Int = 300): String =
+        buildInternal(south, west, north, east, limit, null)
 
-    fun buildForCategory(
-        south: Double,
-        west: Double,
-        north: Double,
-        east: Double,
-        category: NavigationPoiCategory,
-        limit: Int = 80,
-    ): String = buildInternal(south, west, north, east, limit, category)
+    fun buildForCategory(south: Double, west: Double, north: Double, east: Double, category: NavigationPoiCategory, limit: Int = 80): String =
+        buildInternal(south, west, north, east, limit, category)
 
     private fun buildInternal(
-        south: Double,
-        west: Double,
-        north: Double,
-        east: Double,
-        limit: Int,
-        category: NavigationPoiCategory?,
+        south: Double, west: Double, north: Double, east: Double, limit: Int, category: NavigationPoiCategory?,
     ): String {
-        require(south in -90.0..90.0)
-        require(north in -90.0..90.0)
-        require(west in -180.0..180.0)
-        require(east in -180.0..180.0)
-        require(south <= north)
-        require(limit in 1..1000)
-
+        require(south in -90.0..90.0); require(north in -90.0..90.0)
+        require(west in -180.0..180.0); require(east in -180.0..180.0)
+        require(south <= north); require(limit in 1..1000)
         val box = "$south,$west,$north,$east"
         val scoped = category?.let { categoryClauses(it, box) }
         val query = scoped ?: """
@@ -58,9 +38,7 @@ object OsmPoiQuery {
         """.trimIndent()
         return """
             [out:json][timeout:20];
-            (
-              $query
-            );
+            ($query);
             out center tags;
         """.trimIndent()
     }
@@ -70,28 +48,28 @@ object OsmPoiQuery {
             nwr[shop~"^(supermarket|convenience|mall|department_store)$"]($box);
             nwr[amenity="marketplace"]($box);
         """.trimIndent()
-        NavigationPoiCategory.FUEL -> "nwr[amenity="fuel"]($box);"
-        NavigationPoiCategory.PLACE_OF_WORSHIP -> "nwr[amenity="place_of_worship"]($box);"
-        NavigationPoiCategory.PARKING -> "nwr[amenity="parking"]($box);"
-        NavigationPoiCategory.RESTAURANT -> "nwr[amenity~"^(restaurant|fast_food)$"]($box);"
-        NavigationPoiCategory.CAFE -> "nwr[amenity="cafe"]($box);"
-        NavigationPoiCategory.PHARMACY -> "nwr[amenity="pharmacy"]($box);"
-        NavigationPoiCategory.HOSPITAL -> "nwr[amenity="hospital"]($box);"
-        NavigationPoiCategory.SCHOOL -> "nwr[amenity="school"]($box);"
-        NavigationPoiCategory.CHARGING_STATION -> "nwr[amenity="charging_station"]($box);"
-        NavigationPoiCategory.TRAFFIC_SIGNAL -> "nwr[highway="traffic_signals"]($box);"
+        NavigationPoiCategory.FUEL -> "nwr[amenity=\"fuel\"]($box);"
+        NavigationPoiCategory.PLACE_OF_WORSHIP -> "nwr[amenity=\"place_of_worship\"]($box);"
+        NavigationPoiCategory.PARKING -> "nwr[amenity=\"parking\"]($box);"
+        NavigationPoiCategory.RESTAURANT -> "nwr[amenity~\"^(restaurant|fast_food)$\"]($box);"
+        NavigationPoiCategory.CAFE -> "nwr[amenity=\"cafe\"]($box);"
+        NavigationPoiCategory.PHARMACY -> "nwr[amenity=\"pharmacy\"]($box);"
+        NavigationPoiCategory.HOSPITAL -> "nwr[amenity=\"hospital\"]($box);"
+        NavigationPoiCategory.SCHOOL -> "nwr[amenity=\"school\"]($box);"
+        NavigationPoiCategory.CHARGING_STATION -> "nwr[amenity=\"charging_station\"]($box);"
+        NavigationPoiCategory.TRAFFIC_SIGNAL -> "nwr[highway=\"traffic_signals\"]($box);"
         NavigationPoiCategory.SPEED_CAMERA -> """
             nwr[highway="speed_camera"]($box);
             nwr[enforcement~"^(maxspeed|average_speed)$"]($box);
         """.trimIndent()
-        NavigationPoiCategory.PEDESTRIAN_CROSSING -> "nwr[highway="crossing"]($box);"
-        NavigationPoiCategory.TRAM -> "nwr[railway="tram_stop"]($box); nwr[route="tram"]($box);"
-        NavigationPoiCategory.RAILWAY -> "nwr[railway~"^(station|halt|subway_entrance)$"]($box);"
+        NavigationPoiCategory.PEDESTRIAN_CROSSING -> "nwr[highway=\"crossing\"]($box);"
+        NavigationPoiCategory.TRAM -> "nwr[railway=\"tram_stop\"]($box); nwr[route=\"tram\"]($box);"
+        NavigationPoiCategory.RAILWAY -> "nwr[railway~\"^(station|halt|subway_entrance)$\"]($box);"
         NavigationPoiCategory.TRANSIT -> "nwr[public_transport]($box);"
-        NavigationPoiCategory.PARK -> "nwr[leisure="park"]($box);"
-        NavigationPoiCategory.FOREST -> "nwr[landuse="forest"]($box); nwr[natural="wood"]($box); nwr[leisure="nature_reserve"]($box);"
-        NavigationPoiCategory.HOTEL -> "nwr[tourism="hotel"]($box);"
-        NavigationPoiCategory.TOURISM -> "nwr[tourism~"^(attraction|museum|viewpoint)$"]($box);"
+        NavigationPoiCategory.PARK -> "nwr[leisure=\"park\"]($box);"
+        NavigationPoiCategory.FOREST -> "nwr[landuse=\"forest\"]($box); nwr[natural=\"wood\"]($box); nwr[leisure=\"nature_reserve\"]($box);"
+        NavigationPoiCategory.HOTEL -> "nwr[tourism=\"hotel\"]($box);"
+        NavigationPoiCategory.TOURISM -> "nwr[tourism~\"^(attraction|museum|viewpoint)$\"]($box);"
         NavigationPoiCategory.PUBLIC_INSTITUTION -> """
             nwr[amenity~"^(townhall|courthouse|police|fire_station|post_office|library|community_centre)$"]($box);
             nwr[office~"^(government|administrative)$"]($box);
