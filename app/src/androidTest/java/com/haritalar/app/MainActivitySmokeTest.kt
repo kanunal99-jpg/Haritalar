@@ -14,11 +14,17 @@ import androidx.test.rule.GrantPermissionRule
 import com.haritalar.core.navigation.GeoCoordinate
 import com.haritalar.core.traffic.TomTomTrafficProvider
 import com.haritalar.core.traffic.TrafficBounds
-import kotlinx.coroutines.runBlocking
+import com.haritalar.core.traffic.TrafficSnapshot
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.maplibre.android.maps.MapView
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
@@ -92,20 +98,7 @@ class MainActivitySmokeTest {
 
         val point = GeoCoordinate(latitude = 41.0082, longitude = 28.9784)
         val snapshot = try {
-            runBlocking {
-                TomTomTrafficProvider(
-                    apiKey = BuildConfig.TOMTOM_API_KEY,
-                    maxSamples = 1,
-                ).fetchTraffic(
-                    bounds = TrafficBounds(
-                        south = point.latitude,
-                        west = point.longitude,
-                        north = point.latitude,
-                        east = point.longitude,
-                    ),
-                    route = null,
-                )
-            }
+            fetchLiveSnapshot(point)
         } catch (error: Throwable) {
             throw AssertionError("Packaged TomTom credential failed at runtime. Live diagnostics:\n${liveDiagnostics()}", error)
         }
@@ -119,6 +112,40 @@ class MainActivitySmokeTest {
         check(snapshot.confidence.name == "HIGH") {
             "TomTom live snapshot confidence was ${snapshot.confidence}"
         }
+    }
+
+    private fun fetchLiveSnapshot(point: GeoCoordinate): TrafficSnapshot {
+        val provider = TomTomTrafficProvider(
+            apiKey = BuildConfig.TOMTOM_API_KEY,
+            maxSamples = 1,
+        )
+        val completed = CountDownLatch(1)
+        val result = AtomicReference<Result<TrafficSnapshot>?>()
+        val block: suspend () -> TrafficSnapshot = {
+            provider.fetchTraffic(
+                bounds = TrafficBounds(
+                    south = point.latitude,
+                    west = point.longitude,
+                    north = point.latitude,
+                    east = point.longitude,
+                ),
+                route = null,
+            )
+        }
+        block.startCoroutine(object : Continuation<TrafficSnapshot> {
+            override val context = EmptyCoroutineContext
+
+            override fun resumeWith(value: Result<TrafficSnapshot>) {
+                result.set(value)
+                completed.countDown()
+            }
+        })
+
+        check(completed.await(30L, TimeUnit.SECONDS)) {
+            "Timed out waiting for live TomTom traffic response"
+        }
+        return result.get()?.getOrThrow()
+            ?: error("Live TomTom traffic response completed without a result")
     }
 
     private fun assertInitialControls(scenario: ActivityScenario<MainActivity>) {
