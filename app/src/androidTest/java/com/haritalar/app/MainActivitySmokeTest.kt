@@ -22,6 +22,7 @@ import kotlin.coroutines.startCoroutine
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -42,7 +43,6 @@ class MainActivitySmokeTest {
         } catch (error: Throwable) {
             throw AssertionError("MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
         }
-
         try {
             assertInitialControls(scenario)
         } catch (error: Throwable) {
@@ -66,9 +66,7 @@ class MainActivitySmokeTest {
                 }
                 if (!found) SystemClock.sleep(250L)
             }
-            check(found) {
-                "Visible map layer control was not created after MapLibre initialization"
-            }
+            check(found) { "Visible map layer control was not created after MapLibre initialization" }
         } catch (error: Throwable) {
             throw AssertionError("Map layer controls were not verified. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
@@ -80,7 +78,23 @@ class MainActivitySmokeTest {
     fun mapLayerButtonsChangeRealMapLibreVisibility() {
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            val deadline = SystemClock.uptimeMillis() + 12_000L
+            val mapReference = AtomicReference<MapLibreMap?>()
+            val mapReady = CountDownLatch(1)
+            scenario.onActivity { activity ->
+                val content = activity.findViewById<ViewGroup>(android.R.id.content)
+                val mapView = findMapView(content) ?: error("MapLibre MapView was not created")
+                mapView.getMapAsync { map ->
+                    mapReference.set(map)
+                    mapReady.countDown()
+                }
+            }
+            check(mapReady.await(12L, TimeUnit.SECONDS)) {
+                "Timed out waiting for MapLibre map initialization"
+            }
+            val map = mapReference.get() ?: error("MapLibre callback completed without a map")
+            check(map.style != null) { "MapLibre style was not available for layer verification" }
+
+            val deadline = SystemClock.uptimeMillis() + 5_000L
             var verified = false
             while (SystemClock.uptimeMillis() < deadline && !verified) {
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
@@ -88,55 +102,51 @@ class MainActivitySmokeTest {
                     val content = activity.findViewById<ViewGroup>(android.R.id.content)
                     val layers = findTextView(content, "Katmanlar")
                     if (layers != null) {
-                        layers.performClick()
-                        val traffic = findButtonStartingWith(content, "Trafik:")
-                        val poi = findButtonStartingWith(content, "Güvenlik / POI:")
-                        if (traffic != null && poi != null && traffic.isEnabled && poi.isEnabled) {
-                            val mapView = findMapView(content)
-                                ?: error("MapLibre MapView disappeared while layer panel was open")
-                            val map = mapView.getMapAsyncForTestMap() ?: return@onActivity
-                            val style = map.style ?: return@onActivity
-                            val trafficLayer = style.getLayer("haritalar-tomtom-traffic-layer")
-                                ?: error("TomTom traffic layer is missing from the active MapLibre style")
-                            val poiLayerIds = listOf(
-                                "haritalar-live-poi-circles",
-                                "haritalar-live-poi-labels",
-                                "haritalar-live-poi-selected",
-                            )
-                            val poiLayers = poiLayerIds.map { id ->
-                                style.getLayer(id)
-                                    ?: error("POI layer $id is missing from the active MapLibre style")
+                        val panel = rootPanelForTest(content)
+                        if (panel != null) {
+                            val traffic = findButtonStartingWith(panel, "Trafik:")
+                            val poi = findButtonStartingWith(panel, "Güvenlik / POI:")
+                            if (traffic == null || poi == null) {
+                                layers.performClick()
+                            } else if (traffic.isEnabled && poi.isEnabled) {
+                                val style = map.style ?: return@onActivity
+                                val trafficLayer = style.getLayer("haritalar-tomtom-traffic-layer")
+                                    ?: error("TomTom traffic layer is missing from the active MapLibre style")
+                                val poiLayerIds = listOf(
+                                    "haritalar-live-poi-circles",
+                                    "haritalar-live-poi-labels",
+                                    "haritalar-live-poi-selected",
+                                )
+                                val poiLayers = poiLayerIds.map { id ->
+                                    style.getLayer(id) ?: error("POI layer $id is missing from the active MapLibre style")
+                                }
+                                val trafficBefore = trafficLayer.getVisibility().value
+                                val poiBefore = poiLayers.map { it.getVisibility().value }
+                                traffic.performClick()
+                                poi.performClick()
+                                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                                val trafficAfter = trafficLayer.getVisibility().value
+                                val poiAfter = poiLayers.map { it.getVisibility().value }
+                                check(trafficAfter != trafficBefore) {
+                                    "Traffic button did not change real MapLibre visibility"
+                                }
+                                check(poiAfter != poiBefore) {
+                                    "POI button did not change real MapLibre visibility"
+                                }
+                                check(traffic.text.toString() == "Trafik: ${if (trafficAfter == "none") "Kapalı" else "Açık"}") {
+                                    "Traffic label is not synchronized with MapLibre state: ${traffic.text}"
+                                }
+                                check(poi.text.toString() == "Güvenlik / POI: ${if (poiAfter.all { it != "none" }) "Açık" else "Kapalı"}") {
+                                    "POI label is not synchronized with MapLibre state: ${poi.text}"
+                                }
+                                verified = true
                             }
-
-                            val trafficBefore = trafficLayer.getVisibility().value
-                            val poiBefore = poiLayers.map { it.getVisibility().value }
-                            traffic.performClick()
-                            poi.performClick()
-                            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-
-                            val trafficAfter = trafficLayer.getVisibility().value
-                            val poiAfter = poiLayers.map { it.getVisibility().value }
-                            check(trafficAfter != trafficBefore) {
-                                "Traffic button did not change the real MapLibre traffic-layer visibility"
-                            }
-                            check(poiAfter.all { it != poiBefore.first() } || poiAfter != poiBefore) {
-                                "POI button did not change the real MapLibre POI-layer visibility"
-                            }
-                            check(traffic.text.toString() == "Trafik: ${if (trafficAfter == "none") "Kapalı" else "Açık"}") {
-                                "Traffic button label is not synchronized with MapLibre state: ${traffic.text}"
-                            }
-                            check(poi.text.toString() == "Güvenlik / POI: ${if (poiAfter.all { it != "none" }) "Açık" else "Kapalı"}") {
-                                "POI button label is not synchronized with MapLibre state: ${poi.text}"
-                            }
-                            verified = true
                         }
                     }
                 }
-                if (!verified) SystemClock.sleep(300L)
+                if (!verified) SystemClock.sleep(250L)
             }
-            check(verified) {
-                "Layer buttons could not be verified against the active MapLibre style within timeout"
-            }
+            check(verified) { "Layer buttons could not be verified against the active MapLibre style within timeout" }
         } catch (error: Throwable) {
             throw AssertionError("Layer buttons did not pass real MapLibre visibility verification. Live diagnostics:\n${liveDiagnostics()}", error)
         } finally {
@@ -149,7 +159,7 @@ class MainActivitySmokeTest {
         val first = try {
             ActivityScenario.launch(MainActivity::class.java)
         } catch (error: Throwable) {
-            throw AssertionError("First MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
+            throw AssertionError("First MainActivity launch failed after destroying the first activity. Live diagnostics:\n${liveDiagnostics()}", error)
         }
         try {
             assertInitialControls(first)
@@ -162,7 +172,7 @@ class MainActivitySmokeTest {
         val second = try {
             ActivityScenario.launch(MainActivity::class.java)
         } catch (error: Throwable) {
-            throw AssertionError("Second MainActivity launch failed after destroying the first activity. Live diagnostics:\n${liveDiagnostics()}", error)
+            throw AssertionError("Second MainActivity launch failed. Live diagnostics:\n${liveDiagnostics()}", error)
         }
         try {
             SystemClock.sleep(1_000L)
@@ -183,33 +193,20 @@ class MainActivitySmokeTest {
 
     @Test
     fun packagedTomTomCredentialCanFetchLiveTraffic() {
-        check(BuildConfig.TOMTOM_API_KEY.isNotBlank()) {
-            "TOMTOM_API_KEY is empty in the packaged app BuildConfig"
-        }
-
+        check(BuildConfig.TOMTOM_API_KEY.isNotBlank()) { "TOMTOM_API_KEY is empty in the packaged app BuildConfig" }
         val point = GeoCoordinate(latitude = 41.0082, longitude = 28.9784)
         val snapshot = try {
             fetchLiveSnapshot(point)
         } catch (error: Throwable) {
             throw AssertionError("Packaged TomTom credential failed at runtime. Live diagnostics:\n${liveDiagnostics()}", error)
         }
-
-        check(snapshot.providerId == TomTomTrafficProvider.ID) {
-            "Unexpected traffic provider: ${snapshot.providerId}"
-        }
-        check(snapshot.segments.isNotEmpty()) {
-            "TomTom returned no verified traffic segment for the live smoke-test point"
-        }
-        check(snapshot.confidence.name == "HIGH") {
-            "TomTom live snapshot confidence was ${snapshot.confidence}"
-        }
+        check(snapshot.providerId == TomTomTrafficProvider.ID) { "Unexpected traffic provider: ${snapshot.providerId}" }
+        check(snapshot.segments.isNotEmpty()) { "TomTom returned no verified traffic segment for the live smoke-test point" }
+        check(snapshot.confidence.name == "HIGH") { "TomTom live snapshot confidence was ${snapshot.confidence}" }
     }
 
     private fun fetchLiveSnapshot(point: GeoCoordinate): TrafficSnapshot {
-        val provider = TomTomTrafficProvider(
-            apiKey = BuildConfig.TOMTOM_API_KEY,
-            maxSamples = 1,
-        )
+        val provider = TomTomTrafficProvider(apiKey = BuildConfig.TOMTOM_API_KEY, maxSamples = 1)
         val completed = CountDownLatch(1)
         val result = AtomicReference<Result<TrafficSnapshot>?>()
         val block: suspend () -> TrafficSnapshot = {
@@ -225,64 +222,56 @@ class MainActivitySmokeTest {
         }
         block.startCoroutine(object : Continuation<TrafficSnapshot> {
             override val context = EmptyCoroutineContext
-
             override fun resumeWith(value: Result<TrafficSnapshot>) {
                 result.set(value)
                 completed.countDown()
             }
         })
-
-        check(completed.await(30L, TimeUnit.SECONDS)) {
-            "Timed out waiting for live TomTom traffic response"
-        }
-        return result.get()?.getOrThrow()
-            ?: error("Live TomTom traffic response completed without a result")
+        check(completed.await(30L, TimeUnit.SECONDS)) { "Timed out waiting for live TomTom traffic response" }
+        return result.get()?.getOrThrow() ?: error("Live TomTom traffic response completed without a result")
     }
 
     private fun assertInitialControls(scenario: ActivityScenario<MainActivity>) {
         scenario.onActivity { activity ->
             val content = activity.findViewById<ViewGroup>(android.R.id.content)
-            check(findViewWithHint(content, "Nereye gitmek istiyorsun?") != null) {
-                "Destination input with expected hint was not created"
-            }
-            check(findTextView(content, "Ara") != null) {
-                "Search control with expected text was not created"
-            }
+            check(findViewWithHint(content, "Nereye gitmek istiyorsun?") != null) { "Destination input with expected hint was not created" }
+            check(findTextView(content, "Ara") != null) { "Search control with expected text was not created" }
         }
     }
 
     private fun assertMapViewCreated(scenario: ActivityScenario<MainActivity>) {
         scenario.onActivity { activity ->
             val content = activity.findViewById<ViewGroup>(android.R.id.content)
-            check(findMapView(content) != null) {
-                "MapLibre MapView was not created in the activity view hierarchy"
-            }
+            check(findMapView(content) != null) { "MapLibre MapView was not created in the activity view hierarchy" }
         }
     }
 
     private fun findViewWithHint(root: View, hint: String): EditText? {
         if (root is EditText && root.hint?.toString() == hint) return root
         if (root !is ViewGroup) return null
-        for (index in 0 until root.childCount) {
-            findViewWithHint(root.getChildAt(index), hint)?.let { return it }
-        }
+        for (index in 0 until root.childCount) findViewWithHint(root.getChildAt(index), hint)?.let { return it }
         return null
     }
 
     private fun findTextView(root: View, text: String): TextView? {
         if (root is TextView && root.text?.toString() == text) return root
         if (root !is ViewGroup) return null
-        for (index in 0 until root.childCount) {
-            findTextView(root.getChildAt(index), text)?.let { return it }
-        }
+        for (index in 0 until root.childCount) findTextView(root.getChildAt(index), text)?.let { return it }
         return null
     }
 
     private fun findButtonStartingWith(root: View, prefix: String): Button? {
         if (root is Button && root.text?.toString()?.startsWith(prefix) == true) return root
         if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) findButtonStartingWith(root.getChildAt(index), prefix)?.let { return it }
+        return null
+    }
+
+    private fun rootPanelForTest(root: ViewGroup): ViewGroup? {
         for (index in 0 until root.childCount) {
-            findButtonStartingWith(root.getChildAt(index), prefix)?.let { return it }
+            val child = root.getChildAt(index)
+            if (child.tag == "haritalar-layer-panel" && child is ViewGroup) return child
+            if (child is ViewGroup) rootPanelForTest(child)?.let { return it }
         }
         return null
     }
@@ -290,15 +279,9 @@ class MainActivitySmokeTest {
     private fun findMapView(root: View): MapView? {
         if (root is MapView) return root
         if (root !is ViewGroup) return null
-        for (index in 0 until root.childCount) {
-            findMapView(root.getChildAt(index))?.let { return it }
-        }
+        for (index in 0 until root.childCount) findMapView(root.getChildAt(index))?.let { return it }
         return null
     }
-
-    private fun MapView.getAsyncMapReference(): org.maplibre.android.maps.MapLibreMap? = null
-
-    private fun MapView.getMapAsyncForTestMap(): org.maplibre.android.maps.MapLibreMap? = null
 
     private fun liveDiagnostics(): String {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
